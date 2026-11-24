@@ -108,14 +108,23 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         else {
             return
         }
-        // A menu key equivalent is a character, so the item also fires for another key
-        // that types it: the main 1 for a shortcut on the keypad's 1. Only the key the
-        // shortcut was recorded with counts.
-        if let event = currentEvent(), event.type == .keyDown,
-           let combo = model.configuration.shortcut(for: action), event.keyCode != combo.keyCode {
+        if let event = currentEvent(), let combo = model.configuration.shortcut(for: action),
+           Self.isShortcutOnAnotherKey(event, for: combo) {
             return
         }
         model.perform(action)
+    }
+
+    /// A menu key equivalent is a character, so an item also fires for another key that
+    /// types the same one: the main 1 for a shortcut on the keypad's 1. That press is not
+    /// the shortcut. Choosing the item with the mouse, or with the arrow keys and Return,
+    /// is something else and always runs it.
+    static func isShortcutOnAnotherKey(_ event: NSEvent, for combo: KeyCombo) -> Bool {
+        guard event.type == .keyDown, event.keyCode != combo.keyCode else {
+            return false
+        }
+        return KeyCombo.Modifiers(event.modifierFlags) == combo.modifiers
+            && KeyComboFormatter.menuKeyEquivalent(for: event.keyCode) == KeyComboFormatter.menuKeyEquivalent(for: combo.keyCode)
     }
 
     @objc private func openSettings() {

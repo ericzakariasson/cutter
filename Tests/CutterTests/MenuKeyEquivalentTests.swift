@@ -67,9 +67,13 @@ private let controlOption: KeyCombo.Modifiers = [.control, .option]
 /// A key-down event as the system builds one for a key press: the characters come from
 /// the key code and the keyboard layout. It is only handed to the menu in this process,
 /// never posted, so nothing reaches the apps on this Mac.
-private func keyPress(_ keyCode: UInt16, _ extraFlags: CGEventFlags = []) throws -> NSEvent {
+private func keyPress(
+    _ keyCode: UInt16,
+    _ extraFlags: CGEventFlags = [],
+    modifiers: KeyCombo.Modifiers = controlOption
+) throws -> NSEvent {
     let event = try #require(CGEvent(keyboardEventSource: nil, virtualKey: keyCode, keyDown: true))
-    event.flags = CGEventFlags([.maskControl, .maskAlternate]).union(extraFlags)
+    event.flags = modifiers.cgEventFlags.union(extraFlags)
     return try #require(NSEvent(cgEvent: event))
 }
 
@@ -83,7 +87,11 @@ private final class MenuHarness {
     private var controller: StatusMenuController?
     private var eventBeingHandled: NSEvent?
 
-    init(shortcutKey keyCode: UInt16) {
+    convenience init(shortcutKey keyCode: UInt16) {
+        self.init(shortcut: KeyCombo(keyCode: keyCode, modifiers: controlOption))
+    }
+
+    init(shortcut: KeyCombo) {
         // Sending a menu item's action goes through the application object.
         _ = NSApplication.shared
 
@@ -99,7 +107,7 @@ private final class MenuHarness {
         for action in WindowAction.allCases {
             model.setShortcut(nil, for: action)
         }
-        model.setShortcut(KeyCombo(keyCode: keyCode, modifiers: controlOption), for: .maximize)
+        model.setShortcut(shortcut, for: .maximize)
 
         let controller = StatusMenuController(
             model: model,
@@ -112,8 +120,29 @@ private final class MenuHarness {
         controller.menuNeedsUpdate(menu)
     }
 
+    /// The menu without Settings and Quit, whose own shortcuts (⌘, and ⌘Q) would
+    /// otherwise answer a key press meant for the item under test. ⌘Q would end the tests.
+    private var actionsOnly: NSMenu {
+        let copy = NSMenu()
+        copy.autoenablesItems = false
+        for item in menu.items where item.representedObject is String {
+            copy.addItem(item.copy() as! NSMenuItem)
+        }
+        return copy
+    }
+
     var maximizeItem: NSMenuItem {
         menu.item(withTitle: "Maximize")!
+    }
+
+    /// Whether choosing Maximize runs it while the given event is being handled.
+    func choosingMaximizeRunsIt(during event: NSEvent?) throws -> Bool {
+        performed = []
+        eventBeingHandled = event
+        defer { eventBeingHandled = nil }
+        let item = maximizeItem
+        _ = NSApp.sendAction(try #require(item.action), to: item.target, from: item)
+        return performed == [.maximize]
     }
 
     /// Whether pressing the key while the menu is open runs Maximize.
@@ -121,7 +150,7 @@ private final class MenuHarness {
         performed = []
         eventBeingHandled = event
         defer { eventBeingHandled = nil }
-        _ = menu.performKeyEquivalent(with: event)
+        _ = actionsOnly.performKeyEquivalent(with: event)
         return performed == [.maximize]
     }
 }
@@ -197,10 +226,28 @@ private final class MenuHarness {
 
     @Test func choosingAnItemWithTheMouseAlwaysRunsIt() throws {
         let harness = MenuHarness(shortcutKey: keypadOne)
-        let item = harness.maximizeItem
         // No key event is being handled when an item is clicked.
-        #expect(NSApp.sendAction(try #require(item.action), to: item.target, from: item))
-        #expect(harness.performed == [.maximize])
+        #expect(try harness.choosingMaximizeRunsIt(during: nil))
+    }
+
+    /// Moving through the menu with the arrow keys and pressing Return, Enter or Space
+    /// runs the highlighted item. The key pressed is then not the shortcut's key, and
+    /// that must not be mistaken for a shortcut on another key.
+    @Test(arguments: [KeyCode.returnKey, KeyCode.keypadEnter, KeyCode.space])
+    func choosingAnItemWithTheKeyboardRunsIt(key: UInt16) throws {
+        let harness = MenuHarness(shortcutKey: keypadOne)
+        #expect(try harness.choosingMaximizeRunsIt(during: keyPress(key, modifiers: [])))
+        // Also with the shortcut's modifiers still held down.
+        #expect(try harness.choosingMaximizeRunsIt(during: keyPress(key)))
+    }
+
+    @Test func onlyTheSameCharacterOnAnotherKeyIsHeldBack() throws {
+        let keypadShortcut = KeyCombo(keyCode: keypadOne, modifiers: controlOption)
+        #expect(StatusMenuController.isShortcutOnAnotherKey(try keyPress(mainRowOne), for: keypadShortcut))
+        #expect(!StatusMenuController.isShortcutOnAnotherKey(try keyPress(keypadOne, .maskNumericPad), for: keypadShortcut))
+        // Another character, or other modifiers, is not this shortcut at all.
+        #expect(!StatusMenuController.isShortcutOnAnotherKey(try keyPress(19), for: keypadShortcut))
+        #expect(!StatusMenuController.isShortcutOnAnotherKey(try keyPress(mainRowOne, modifiers: [.command]), for: keypadShortcut))
     }
 
     /// Keypad Clear and Help have no menu key equivalent, so the menu cannot answer to
@@ -208,6 +255,7 @@ private final class MenuHarness {
     @Test(arguments: [KeyCode.keypadClear, KeyCode.help])
     func aKeyTheMenuCannotExpressKeepsItsGlobalShortcutWhileTheMenuIsOpen(keyCode: UInt16) {
         #expect(KeyComboFormatter.menuKeyEquivalent(for: keyCode) == nil)
+        #expect(!KeyComboFormatter.menuAnswers(to: KeyCombo(keyCode: keyCode, modifiers: controlOption)))
 
         let harness = MenuHarness(shortcutKey: keyCode)
         let combo = KeyCombo(keyCode: keyCode, modifiers: controlOption)
@@ -231,5 +279,75 @@ private final class MenuHarness {
     @Test func clearAndHelpHaveNames() {
         #expect(KeyComboFormatter.keyName(for: KeyCode.keypadClear) == "⌧")
         #expect(KeyComboFormatter.keyName(for: KeyCode.help) == "Help")
+    }
+}
+
+/// Whatever keys a shortcut uses, it must keep working while the menu is open: either
+/// the menu runs the item itself, or the global shortcut stays registered.
+@MainActor
+@Suite struct ShortcutsWithTheMenuOpenTests {
+    /// Every key code a keyboard can send, except the modifier keys themselves.
+    private static let allKeyCodes: [UInt16] = (0...126).filter { !(54...63).contains($0) }
+    /// A cross-section: letters, digits, punctuation, keypad, navigation and function keys.
+    private static let sampleKeyCodes: [UInt16] = [0, 17, 18, 27, 33, 44, 47, 50, 36, 48, 49, 51, 53, 65, 75, 83, 96, 115, 117, 123, 126]
+
+    /// Where Cutter gives up the global shortcut, AppKit's menu must really run the item.
+    /// Run for every key with the default modifiers and with ⇧⌘, the one combination
+    /// with an exception; AppKit pauses about 50 ms per item it runs, so the other
+    /// modifiers get a cross-section of keys.
+    @Test(arguments: zip(
+        [[.control, .option], [.command, .shift], [.command], [.control, .shift], [.option, .command], [.control, .option, .shift, .command]] as [KeyCombo.Modifiers],
+        [true, true, false, false, false, false]
+    ))
+    func everyShortcutIsAnsweredByTheMenuOrStaysRegistered(modifiers: KeyCombo.Modifiers, everyKey: Bool) throws {
+        var answeredByTheMenu = 0
+        let keyCodes = everyKey ? Self.allKeyCodes : Self.sampleKeyCodes
+        for keyCode in keyCodes {
+            let combo = KeyCombo(keyCode: keyCode, modifiers: modifiers)
+            let harness = MenuHarness(shortcut: combo)
+            harness.model.menuDidOpen()
+
+            if harness.hotKeys.registered.isEmpty {
+                // The global shortcut stepped aside, so the menu has to do the work.
+                let ran = harness.runsMaximize(try keyPress(keyCode, modifiers: modifiers))
+                #expect(ran, "\(KeyComboFormatter.string(for: combo)) does nothing while the menu is open")
+                answeredByTheMenu += 1
+            } else {
+                #expect(harness.hotKeys.registered == [.maximize: combo])
+            }
+        }
+        // Most keys can be menu key equivalents; this guards against the rule answering "no" too often.
+        #expect(answeredByTheMenu * 10 >= keyCodes.count * 8)
+    }
+
+    @Test func theDefaultShortcutsAreAnsweredByTheMenu() {
+        for (_, combo) in ShortcutConfiguration.defaultShortcuts {
+            #expect(KeyComboFormatter.menuAnswers(to: combo))
+        }
+    }
+
+    /// AppKit keeps ⌘? for Help: a menu item with that key equivalent is never run.
+    /// Only checked on keyboard layouts where the key next to the right Shift types "/".
+    @Test func aShortcutAppKitKeepsToItselfStaysRegistered() throws {
+        let slash: UInt16 = 44
+        guard KeyComboFormatter.layoutCharacter(for: slash) == "/" else {
+            return
+        }
+        let combo = KeyCombo(keyCode: slash, modifiers: [.command, .shift])
+        #expect(!KeyComboFormatter.menuAnswers(to: combo))
+
+        let harness = MenuHarness(shortcut: combo)
+        #expect(!harness.runsMaximize(try keyPress(slash, modifiers: [.command, .shift])))
+        harness.model.menuDidOpen()
+        #expect(harness.hotKeys.registered == [.maximize: combo])
+
+        // The same key with other modifiers is an ordinary menu shortcut.
+        #expect(KeyComboFormatter.menuAnswers(to: KeyCombo(keyCode: slash, modifiers: controlOption)))
+    }
+
+    @Test func settingsAndQuitKeepTheirOwnShortcutsInTheMenu() {
+        let harness = MenuHarness(shortcutKey: KeyCode.returnKey)
+        #expect(harness.menu.item(withTitle: "Settings…")?.keyEquivalent == ",")
+        #expect(harness.menu.item(withTitle: "Quit Cutter")?.keyEquivalent == "q")
     }
 }

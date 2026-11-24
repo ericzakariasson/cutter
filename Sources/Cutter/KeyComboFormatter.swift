@@ -21,6 +21,16 @@ extension KeyCombo.Modifiers {
         return result
     }
 
+    /// The modifier flags of a key event built with Core Graphics.
+    var cgEventFlags: CGEventFlags {
+        var result: CGEventFlags = []
+        if contains(.control) { result.insert(.maskControl) }
+        if contains(.option) { result.insert(.maskAlternate) }
+        if contains(.shift) { result.insert(.maskShift) }
+        if contains(.command) { result.insert(.maskCommand) }
+        return result
+    }
+
     /// The modifier mask `RegisterEventHotKey` expects.
     var carbonFlags: UInt32 {
         var result = 0
@@ -87,8 +97,27 @@ enum KeyComboFormatter {
         return functionKey.flatMap(UnicodeScalar.init).map { String(Character($0)) }
     }
 
-    /// What the key types on the current keyboard layout, without modifiers.
-    static func layoutCharacter(for keyCode: UInt16) -> String? {
+    /// Whether an open menu runs an item that carries this shortcut when the keys are
+    /// pressed. False for keys without a menu key equivalent, and for ⌘?, which AppKit
+    /// keeps for Help and never hands to a menu item.
+    ///
+    /// `AppModel` keeps the global shortcut registered while the menu is open exactly
+    /// when this is false, so every shortcut works with the menu open one way or the
+    /// other. The tests check this against AppKit for every key.
+    static func menuAnswers(to combo: KeyCombo) -> Bool {
+        guard menuKeyEquivalent(for: combo.keyCode) != nil else {
+            return false
+        }
+        if combo.modifiers == [.command, .shift] {
+            let isQuestionMark = layoutCharacter(for: combo.keyCode) == "/"
+                || layoutCharacter(for: combo.keyCode, shift: true) == "?"
+            return !isQuestionMark
+        }
+        return true
+    }
+
+    /// What the key types on the current keyboard layout, alone or with Shift.
+    static func layoutCharacter(for keyCode: UInt16, shift: Bool = false) -> String? {
         guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
               let property = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData)
         else {
@@ -107,7 +136,7 @@ enum KeyComboFormatter {
                 layout,
                 keyCode,
                 UInt16(kUCKeyActionDisplay),
-                0,
+                shift ? UInt32(shiftKey >> 8) & 0xFF : 0,
                 UInt32(LMGetKbdType()),
                 OptionBits(kUCKeyTranslateNoDeadKeysBit),
                 &deadKeyState,

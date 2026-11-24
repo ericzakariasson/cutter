@@ -31,6 +31,7 @@ private func meaning(_ modifiers: KeyCombo.Modifiers, key: UInt16) -> String? {
         #expect(meaning([.command, .option], key: KeyCode.escape) != nil)
         #expect(meaning([.command, .control], character: "q") == "locks the screen")
         #expect(meaning([.command, .shift], character: "4") != nil)
+        #expect(meaning([.command, .shift], character: "/") == "opens the Help menu")
     }
 
     @Test func textNavigation() {

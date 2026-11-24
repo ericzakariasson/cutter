@@ -17,7 +17,7 @@ final class ShortcutRecorder: ObservableObject {
     /// Called when a key press cannot be a global shortcut.
     var onRejectedKey: () -> Void = { NSSound.beep() }
     /// What a key types on the current keyboard layout.
-    var characterForKeyCode: (UInt16) -> String? = KeyComboFormatter.layoutCharacter(for:)
+    var characterForKeyCode: (UInt16) -> String? = { KeyComboFormatter.layoutCharacter(for: $0) }
 
     private var onCommit: ((KeyCombo?) -> Void)?
     private var awaitingConfirmation: KeyCombo?

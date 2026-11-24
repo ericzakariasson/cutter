@@ -47,6 +47,7 @@ public enum WellKnownShortcut {
         [.command, .shift]: [
             "z": "redoes the last change",
             "q": "logs you out",
+            "/": "opens the Help menu",
             "3": "takes a screenshot",
             "4": "takes a screenshot",
             "5": "takes a screenshot",

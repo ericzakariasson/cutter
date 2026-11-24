@@ -15,6 +15,8 @@ A macOS menu bar app that moves and resizes the focused window with global keybo
 
 Every shortcut can be changed or removed in the settings window. With several displays, a placement applies to the display the window is on.
 
+macOS draws the shortcut glyphs in Cutter's menu, and on macOS 26 it draws arrow keys as filled triangles, so the menu shows ⌃⌥◀ where Settings shows ⌃⌥←.
+
 ## Moving between displays
 
 Move to Previous Display and Move to Next Display send the focused window to another display. Pressing one repeatedly cycles through all displays and wraps around at the ends; with one display they do nothing.

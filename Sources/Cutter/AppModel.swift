@@ -36,13 +36,13 @@ final class AppModel: ObservableObject {
     /// - Parameters:
     ///   - act: what carries out an action. The default acts on the focused window; tests
     ///     pass their own so that they can never move anyone's windows.
-    ///   - menuAnswersTo: whether the open menu triggers a shortcut by itself.
+    ///   - menuAnswersTo: whether the open menu runs a shortcut's item by itself.
     init(
         store: ShortcutStore = ShortcutStore(),
         permission: AccessibilityPermission = AccessibilityPermission(),
         hotKeys: HotKeyRegistering = HotKeyCenter(),
         act: ((WindowAction) throws -> Void)? = nil,
-        menuAnswersTo: @escaping (KeyCombo) -> Bool = { KeyComboFormatter.menuKeyEquivalent(for: $0.keyCode) != nil }
+        menuAnswersTo: @escaping (KeyCombo) -> Bool = KeyComboFormatter.menuAnswers(to:)
     ) {
         self.store = store
         self.permission = permission
@@ -98,7 +98,7 @@ final class AppModel: ObservableObject {
 
     /// While Cutter's menu is open, its items answer to the same keys as the global
     /// shortcuts. The global ones step aside so that one key press runs an action once.
-    /// A shortcut on a key the menu cannot express stays registered.
+    /// A shortcut the menu does not answer to stays registered, so it keeps working.
     func menuDidOpen() {
         isMenuOpen = true
         syncHotKeys()
@@ -133,12 +133,12 @@ final class AppModel: ObservableObject {
             hotKeys.unregisterAll()
             return
         }
+        let assignments = configuration.assignments
         guard !isMenuOpen else {
-            _ = hotKeys.register(configuration.assignments.filter { !menuAnswersTo($0.combo) })
+            _ = hotKeys.register(assignments.filter { !menuAnswersTo($0.combo) })
             return
         }
 
-        let assignments = configuration.assignments
         let failures = hotKeys.register(assignments)
         failedRegistrations = failures
 
