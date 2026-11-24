@@ -14,7 +14,12 @@ private func frame(_ action: WindowAction, in visibleFrame: CGRect) -> CGRect {
     PlacementGeometry.frame(for: unit(action), in: visibleFrame)
 }
 
-private let placements = WindowAction.allCases.filter { $0 != .toggleFullScreen }
+private let placements = WindowAction.allCases.filter { action in
+    if case .place = action.behavior {
+        return true
+    }
+    return false
+}
 
 @Suite struct PlacementFrameTests {
     /// A MacBook screen below its menu bar, with the Dock at the bottom.

@@ -6,7 +6,7 @@ import CutterCore
 /// it opens a small window in a helper process, applies each placement to it through the
 /// same Accessibility code the shortcuts use, and compares where the window ended up with
 /// where it should be. It then makes the helper stop responding and checks that Cutter
-/// gives up on it quickly.
+/// gives up on it quickly, and with several screens it sends a window around all of them.
 ///
 /// Accessibility access belongs to the app, not to a terminal, so run it through `open`:
 ///
@@ -35,14 +35,10 @@ enum SelfTest {
         for (index, screen) in layout.screens.enumerated() {
             print("Screen \(index + 1): usable area \(describe(screen.visibleFrame))")
 
-            let host = Process()
-            host.executableURL = executable
-            host.arguments = ["--self-test-window", String(index)]
-            // The helper quits when this pipe closes, so it cannot outlive the test.
-            let commands = Pipe()
-            host.standardInput = commands
+            let host: Process
+            let commands: Pipe
             do {
-                try host.run()
+                (host, commands) = try launchHost(executable, screenIndex: index)
             } catch {
                 print("  FAIL  could not start the test window: \(error.localizedDescription)")
                 failures += 1
@@ -107,6 +103,14 @@ enum SelfTest {
             }
         }
 
+        if layout.screens.count < 2 {
+            print("Display moves: not checked, there is only one screen.")
+        } else if skippedScreens == layout.screens.count {
+            print("Display moves: not checked, no screen accepted a test window.")
+        } else {
+            failures += checkDisplayMoves(executable: executable, manager: manager, layout: layout)
+        }
+
         if failures > 0 {
             print("Self-test failed: \(failures) problem(s).")
             return 1
@@ -118,6 +122,104 @@ enum SelfTest {
         print(skippedScreens == 0 ? "Self-test passed." : "Self-test passed on the screens it could use; \(skippedScreens) skipped.")
         return 0
     }
+
+    private static func launchHost(_ executable: URL, screenIndex: Int) throws -> (Process, Pipe) {
+        let host = Process()
+        host.executableURL = executable
+        host.arguments = ["--self-test-window", String(screenIndex)]
+        // The helper quits when this pipe closes, so it cannot outlive the test.
+        let commands = Pipe()
+        host.standardInput = commands
+        try host.run()
+        return (host, commands)
+    }
+
+    /// Sends a window once around all the displays with "next display", then one step back
+    /// with "previous display", for a few starting placements. After every step the window
+    /// must cover the same part of the screen it landed on, and after the full round it
+    /// must be exactly where it started. Returns the number of failures.
+    private static func checkDisplayMoves(executable: URL, manager: WindowManager, layout: ScreenLayout) -> Int {
+        let order = layout.displayOrder
+        print("Display moves, in the order of screens \(order.map { String($0 + 1) }.joined(separator: ", ")):")
+
+        guard let (host, _) = try? launchHost(executable, screenIndex: order[0]) else {
+            print("  FAIL  could not start the test window")
+            return 1
+        }
+        defer {
+            host.terminate()
+            host.waitUntilExit()
+        }
+        guard let window = waitForWindow(of: host.processIdentifier, manager: manager) else {
+            print("  FAIL  could not find the test window through the Accessibility API")
+            return 1
+        }
+
+        var failures = 0
+        for placement in [WindowAction.maximize, .leftHalf, .bottomRight] {
+            guard case .place(let unit) = placement.behavior else {
+                continue
+            }
+            do {
+                try manager.perform(placement, on: window)
+                Thread.sleep(forTimeInterval: 0.3)
+                let startFrame = windowServerFrame(of: host.processIdentifier) ?? .null
+                // The window starts on whichever screen it is on: where macOS opened it,
+                // or where the previous round left it.
+                guard let startScreen = layout.screenIndex(forWindowFrame: startFrame),
+                      var position = order.firstIndex(of: startScreen)
+                else {
+                    failures += 1
+                    print("  FAIL  \(placement.title): the test window is on no screen")
+                    continue
+                }
+                let steps = Array(repeating: WindowAction.nextDisplay, count: order.count) + [.previousDisplay]
+                for (number, step) in steps.enumerated() {
+                    position = (position + (step == .nextDisplay ? 1 : order.count - 1)) % order.count
+                    let screen = layout.screens[order[position]]
+                    let expected = PlacementGeometry.frame(for: unit, in: screen.visibleFrame)
+
+                    try manager.perform(step, on: window)
+                    Thread.sleep(forTimeInterval: 0.3)
+                    let reported = try manager.frame(of: window)
+                    let onScreen = windowServerFrame(of: host.processIdentifier) ?? .null
+                    let label = "\(placement.title), \(step == .nextDisplay ? "next" : "previous") -> screen \(order[position] + 1)"
+
+                    // A screen that reports no menu bar can still keep windows out of the
+                    // strip where its hidden menu bar appears.
+                    let hiddenMenuBar = screen.visibleFrame.minY == screen.frame.minY ? hiddenMenuBarAllowance : 0
+                    let topInset = max(reported.minY, onScreen.minY) - expected.minY
+                    var allowed = expected
+                    if topInset > tolerance, topInset <= hiddenMenuBar, expected.minY == screen.visibleFrame.minY {
+                        allowed = CGRect(x: expected.minX, y: expected.minY + topInset, width: expected.width, height: expected.height - topInset)
+                    }
+                    let backAtStart = number == order.count - 1
+                    let offBy = backAtStart
+                        ? deviation(onScreen, startFrame)
+                        : max(deviation(reported, allowed), deviation(onScreen, allowed))
+
+                    if offBy > tolerance {
+                        failures += 1
+                        let wanted = backAtStart ? startFrame : expected
+                        print("  FAIL  \(label): wanted \(describe(wanted)), got \(describe(onScreen)), Accessibility reports \(describe(reported))")
+                    } else if backAtStart {
+                        print("  ok    \(label): \(describe(onScreen)), back where it started")
+                    } else if allowed != expected {
+                        print("  ok    \(label): \(describe(onScreen)), \(Int(topInset)) pt below the top where a hidden menu bar sits")
+                    } else {
+                        print("  ok    \(label): \(describe(onScreen))")
+                    }
+                }
+            } catch {
+                failures += 1
+                print("  FAIL  \(placement.title): \(error)")
+            }
+        }
+        return failures
+    }
+
+    /// How far below the top of a screen without a visible menu bar a window may end up.
+    private static let hiddenMenuBarAllowance: CGFloat = 40
 
     /// A shortcut runs on Cutter's main thread, so an app that has stopped responding must
     /// not hold it up for long. The helper's main thread is blocked at this point.

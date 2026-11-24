@@ -7,12 +7,22 @@ A macOS menu bar app that moves and resizes the focused window with global keybo
 | Maximize (fills the screen below the menu bar and above the Dock; not native full screen) | ⌃⌥↩ |
 | Left Half | ⌃⌥← |
 | Right Half | ⌃⌥→ |
-| Top Half | ⌃⌥↑ |
-| Bottom Half | ⌃⌥↓ |
+| Move to Previous Display | ⌃⌥↑ |
+| Move to Next Display | ⌃⌥↓ |
+| Top Half, Bottom Half | none |
 | Top Left, Top Right, Bottom Left, Bottom Right | none |
 | Toggle Full Screen (native) | none |
 
-Every shortcut can be changed or removed in the settings window. With several displays, an action applies to the display the window is on.
+Every shortcut can be changed or removed in the settings window. With several displays, a placement applies to the display the window is on.
+
+## Moving between displays
+
+Move to Previous Display and Move to Next Display send the focused window to another display. Pressing one repeatedly cycles through all displays and wraps around at the ends; with one display they do nothing.
+
+- **Order.** The displays are ordered as they are arranged in System Settings > Displays: rows from top to bottom, and left to right within a row. With one display above another, ⌃⌥↑ goes to the upper one and ⌃⌥↓ to the lower one. With displays side by side, ⌃⌥↑ goes left and ⌃⌥↓ goes right. With two displays, either shortcut swaps.
+- **Size and position.** The window keeps its place within the visible area: a maximized window stays maximized, a left half stays a left half, and any other window covers the same fraction of the new display at the same relative position, so it grows or shrinks with the display. It always ends up fully inside the visible area.
+
+## Shortcuts and other apps
 
 A shortcut belongs to Cutter while Cutter runs: the frontmost app no longer receives it. Control+Option with Return or an arrow is free in macOS and in most apps, with two exceptions worth knowing:
 
@@ -63,7 +73,7 @@ open -n build/Cutter.app --stdout /tmp/cutter-self-test.log --args --self-test
 cat /tmp/cutter-self-test.log
 ```
 
-checks placement end to end once Cutter has Accessibility access. On each screen it opens a small window of its own, applies every placement to it and reports where the window ended up. It then makes that window's app stop responding and checks that Cutter gives up on it within about a second. It moves no other window. A screen showing a full-screen app is skipped.
+checks placement end to end once Cutter has Accessibility access. On each screen it opens a small window of its own, applies every placement to it and reports where the window ended up. It then makes that window's app stop responding and checks that Cutter gives up on it within about a second, and with several screens it sends a window once around all of them. It moves no other window. A screen showing a full-screen app is skipped for the placements, because a new window cannot open there.
 
 To try a build while the copy in `build/` is running, put it elsewhere with `CUTTER_APP_DIR=<dir> ./scripts/build-app.sh`. Add `CUTTER_BUNDLE_ID=<another id>` for a copy with settings of its own that can run next to the real one; it has no Accessibility access until you grant it.
 
@@ -79,7 +89,8 @@ Add a case to `WindowAction` in `Sources/CutterCore/WindowAction.swift` with a t
 
 ## Known limits
 
-- A window in native full screen ignores placements; leave full screen first.
+- A window in native full screen ignores placements and display moves; leave full screen first.
+- A display that is showing a full-screen app has no desktop for another window to land on, so a window sent there may not appear.
 - An app that has stopped responding cannot be moved. Cutter waits about a second for it and then beeps.
 - Some windows refuse a size (minimum sizes, fixed-size dialogs, terminals that resize in whole characters). Cutter then keeps the window against the screen edges the placement touches.
 - The build is for this Mac's architecture only.

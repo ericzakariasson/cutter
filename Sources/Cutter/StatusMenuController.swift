@@ -5,10 +5,16 @@ import CutterCore
 final class StatusMenuController: NSObject, NSMenuDelegate {
     private let model: AppModel
     private let showSettings: () -> Void
+    private let screenCount: () -> Int
     private var statusItem: NSStatusItem?
 
-    init(model: AppModel, showSettings: @escaping () -> Void) {
+    init(
+        model: AppModel,
+        screenCount: @escaping () -> Int = { NSScreen.screens.count },
+        showSettings: @escaping () -> Void
+    ) {
         self.model = model
+        self.screenCount = screenCount
         self.showSettings = showSettings
         super.init()
     }
@@ -62,13 +68,13 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
 
         for action in WindowAction.allCases {
-            if action == .toggleFullScreen {
+            if action == .previousDisplay || action == .toggleFullScreen {
                 menu.addItem(.separator())
             }
             let item = makeItem(action.title, action: #selector(performAction(_:)))
             item.representedObject = action.rawValue
             item.image = NSImage(systemSymbolName: action.symbolName, accessibilityDescription: nil)
-            item.isEnabled = isTrusted
+            item.isEnabled = isTrusted && (!action.movesBetweenDisplays || screenCount() > 1)
             if let combo = model.configuration.shortcut(for: action),
                let keyEquivalent = KeyComboFormatter.menuKeyEquivalent(for: combo.keyCode) {
                 item.keyEquivalent = keyEquivalent

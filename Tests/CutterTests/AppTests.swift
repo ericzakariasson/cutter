@@ -357,9 +357,9 @@ private let controlOptionReturn = KeyCombo(keyCode: KeyCode.returnKey, modifiers
 
 @MainActor
 @Suite struct StatusMenuTests {
-    private func menu(for model: AppModel) -> NSMenu {
+    private func menu(for model: AppModel, screens: Int = 2) -> NSMenu {
         let menu = NSMenu()
-        StatusMenuController(model: model) {}.menuNeedsUpdate(menu)
+        StatusMenuController(model: model, screenCount: { screens }) {}.menuNeedsUpdate(menu)
         return menu
     }
 
@@ -378,15 +378,28 @@ private let controlOptionReturn = KeyCombo(keyCode: KeyCode.returnKey, modifiers
         #expect(leftHalf.keyEquivalent.unicodeScalars.first?.value == UInt32(NSLeftArrowFunctionKey))
         #expect(leftHalf.keyEquivalentModifierMask == [.control, .option])
 
-        let bottomHalf = try #require(menu.item(withTitle: "Bottom Half"))
-        #expect(bottomHalf.keyEquivalent.unicodeScalars.first?.value == UInt32(NSDownArrowFunctionKey))
-        #expect(bottomHalf.keyEquivalentModifierMask == [.control, .option])
+        let previousDisplay = try #require(menu.item(withTitle: "Move to Previous Display"))
+        #expect(previousDisplay.keyEquivalent.unicodeScalars.first?.value == UInt32(NSUpArrowFunctionKey))
+        #expect(previousDisplay.keyEquivalentModifierMask == [.control, .option])
 
+        let nextDisplay = try #require(menu.item(withTitle: "Move to Next Display"))
+        #expect(nextDisplay.keyEquivalent.unicodeScalars.first?.value == UInt32(NSDownArrowFunctionKey))
+        #expect(nextDisplay.keyEquivalentModifierMask == [.control, .option])
+
+        #expect(try #require(menu.item(withTitle: "Top Half")).keyEquivalent == "")
+        #expect(try #require(menu.item(withTitle: "Bottom Half")).keyEquivalent == "")
         #expect(try #require(menu.item(withTitle: "Top Left")).keyEquivalent == "")
         #expect(try #require(menu.item(withTitle: "Toggle Full Screen")).keyEquivalent == "")
         #expect(menu.item(withTitle: "Settings…") != nil)
         #expect(menu.item(withTitle: "Quit Cutter") != nil)
         #expect(menu.item(withTitle: "Allow Accessibility Access…") == nil)
+    }
+
+    @Test func withOneDisplayTheDisplayMovesAreDisabled() throws {
+        let menu = menu(for: makeModel(), screens: 1)
+        #expect(try #require(menu.item(withTitle: "Move to Previous Display")).isEnabled == false)
+        #expect(try #require(menu.item(withTitle: "Move to Next Display")).isEnabled == false)
+        #expect(try #require(menu.item(withTitle: "Maximize")).isEnabled)
     }
 
     @Test func withoutAccessibilityAccessActionsAreDisabledAndTheMenuSaysWhy() throws {
@@ -405,8 +418,8 @@ private let controlOptionReturn = KeyCombo(keyCode: KeyCode.returnKey, modifiers
             .maximize: "⌃⌥↩",
             .leftHalf: "⌃⌥←",
             .rightHalf: "⌃⌥→",
-            .topHalf: "⌃⌥↑",
-            .bottomHalf: "⌃⌥↓",
+            .previousDisplay: "⌃⌥↑",
+            .nextDisplay: "⌃⌥↓",
         ]
         let defaults = ShortcutConfiguration.defaultShortcuts
         #expect(defaults.count == expected.count)

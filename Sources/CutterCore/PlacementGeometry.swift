@@ -91,6 +91,62 @@ public enum PlacementGeometry {
         return CGPoint(x: x, y: y)
     }
 
+    /// The part of a visible area a window covers, in fractions of that area. This is what
+    /// a window keeps when it moves to another display.
+    ///
+    /// Edges within a few points of the area's edges or centre lines count as being on
+    /// them, so a maximized or half-screen window stays exactly that on the other display
+    /// even though macOS placed it a point off. A window that hangs outside the area, or
+    /// is larger than it, is pulled inside: the result always lies within the unit square.
+    public static func unitRect(of windowFrame: CGRect, in visibleFrame: CGRect) -> UnitRect {
+        let horizontal = unitSpan(
+            from: windowFrame.minX,
+            to: windowFrame.maxX,
+            visibleMin: visibleFrame.minX,
+            visibleLength: visibleFrame.width
+        )
+        let vertical = unitSpan(
+            from: windowFrame.minY,
+            to: windowFrame.maxY,
+            visibleMin: visibleFrame.minY,
+            visibleLength: visibleFrame.height
+        )
+        return UnitRect(x: horizontal.start, y: vertical.start, width: horizontal.length, height: vertical.length)
+    }
+
+    /// How close, in points, an edge must be to a screen edge or centre line to count as on it.
+    static let snapDistance: CGFloat = 4
+
+    private static func unitSpan(
+        from start: CGFloat,
+        to end: CGFloat,
+        visibleMin: CGFloat,
+        visibleLength: CGFloat
+    ) -> (start: Double, length: Double) {
+        guard visibleLength > 0 else {
+            return (0, 1)
+        }
+        func exactFraction(_ edge: CGFloat) -> Double {
+            Double((edge - visibleMin) / visibleLength)
+        }
+        func snappedFraction(_ edge: CGFloat) -> Double {
+            for anchor in [0, 0.5, 1] where abs(edge - (visibleMin + CGFloat(anchor) * visibleLength)) <= snapDistance {
+                return anchor
+            }
+            return exactFraction(edge)
+        }
+
+        var first = snappedFraction(start)
+        var last = snappedFraction(end)
+        if last <= first {
+            // A sliver of a window whose two edges snapped to the same line.
+            first = exactFraction(start)
+            last = exactFraction(end)
+        }
+        let length = min(max(last - first, 0), 1)
+        return (min(max(first, 0), 1 - length), length)
+    }
+
     private static let edgeTolerance = 0.0001
 
     private static func settle(
@@ -155,12 +211,99 @@ public struct ScreenLayout: Equatable, Sendable {
         }
     }
 
+    /// The index of the screen a window is on.
+    public func screenIndex(forWindowFrame windowFrame: CGRect) -> Int? {
+        PlacementGeometry.screenIndex(forWindowFrame: windowFrame, screenFrames: screens.map(\.frame))
+    }
+
     /// The visible area of the screen a window is on.
     public func visibleFrame(forWindowFrame windowFrame: CGRect) -> CGRect? {
-        let index = PlacementGeometry.screenIndex(
-            forWindowFrame: windowFrame,
-            screenFrames: screens.map(\.frame)
+        screenIndex(forWindowFrame: windowFrame).map { screens[$0].visibleFrame }
+    }
+
+    // MARK: - Moving between displays
+
+    /// The screens in the order "previous display" and "next display" step through them,
+    /// as indices into `screens`.
+    ///
+    /// The order follows the arrangement in System Settings: rows from top to bottom, and
+    /// left to right within a row. With displays stacked, "previous" is the one above;
+    /// with displays side by side, the one to the left. Two screens share a row when the
+    /// vertical centre of one lies within the height of the other, so side-by-side
+    /// displays of different sizes or alignment still count as one row. The order depends
+    /// only on the arrangement, not on which screen is the primary one.
+    public var displayOrder: [Int] {
+        let byHeight = screens.indices.sorted { a, b in
+            let first = screens[a].frame
+            let second = screens[b].frame
+            return (first.midY, first.minX, a) < (second.midY, second.minX, b)
+        }
+
+        var rows: [[Int]] = []
+        for index in byHeight {
+            let frame = screens[index].frame
+            if let top = rows.last?.first.map({ screens[$0].frame }),
+               (top.minY...top.maxY).contains(frame.midY) || (frame.minY...frame.maxY).contains(top.midY) {
+                rows[rows.count - 1].append(index)
+            } else {
+                rows.append([index])
+            }
+        }
+        return rows.flatMap { row in
+            row.sorted { a, b in
+                (screens[a].frame.minX, a) < (screens[b].frame.minX, b)
+            }
+        }
+    }
+
+    /// The screen one step from another in `displayOrder`, wrapping at the ends. Nil with
+    /// fewer than two screens.
+    public func screenIndex(_ direction: DisplayDirection, from index: Int) -> Int? {
+        let order = displayOrder
+        guard order.count > 1, let position = order.firstIndex(of: index) else {
+            return nil
+        }
+        let step = direction == .next ? 1 : order.count - 1
+        return order[(position + step) % order.count]
+    }
+
+    public struct DisplayMove: Equatable, Sendable {
+        /// The screen the window moves to, as an index into `screens`.
+        public var screenIndex: Int
+        /// That screen's visible area.
+        public var visibleFrame: CGRect
+        /// The part of the visible area the window covers, on both screens.
+        public var unit: UnitRect
+        /// The window's frame on the new screen.
+        public var frame: CGRect
+    }
+
+    /// Where a window goes when it moves to the previous or next display: the same part
+    /// of the new screen's visible area as it covers on its own screen, so its size
+    /// scales with the screen and it always ends up fully inside the visible area.
+    /// Nil when there is no other screen.
+    ///
+    /// - Parameter knownUnit: the part of the visible area the window was last given, when
+    ///   the caller knows it. It is used instead of measuring the frame, which keeps a
+    ///   window exact over repeated moves even when a screen did not let it take the
+    ///   whole frame it was given.
+    public func move(
+        windowFrame: CGRect,
+        to direction: DisplayDirection,
+        covering knownUnit: UnitRect? = nil
+    ) -> DisplayMove? {
+        guard let source = screenIndex(forWindowFrame: windowFrame),
+              let destination = screenIndex(direction, from: source)
+        else {
+            return nil
+        }
+        let unit = knownUnit ?? PlacementGeometry.unitRect(of: windowFrame, in: screens[source].visibleFrame)
+        let visibleFrame = screens[destination].visibleFrame
+        return DisplayMove(
+            screenIndex: destination,
+            visibleFrame: visibleFrame,
+            unit: unit,
+            frame: PlacementGeometry.frame(for: unit, in: visibleFrame)
         )
-        return index.map { screens[$0].visibleFrame }
     }
 }

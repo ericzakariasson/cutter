@@ -3,8 +3,8 @@ import Foundation
 /// Everything Cutter can do to the focused window.
 ///
 /// To add a placement: add a case, give it a `title`, and return its `UnitRect` from `behavior`.
-/// The settings window, the menu and the shortcut storage pick it up from `allCases`.
-/// The raw value is the persistence key, so do not rename existing cases.
+/// The settings window, the menu and the shortcut storage pick it up from `allCases`, in
+/// this order. The raw value is the persistence key, so do not rename existing cases.
 public enum WindowAction: String, CaseIterable, Codable, Sendable {
     case maximize
     case leftHalf
@@ -15,11 +15,15 @@ public enum WindowAction: String, CaseIterable, Codable, Sendable {
     case topRight
     case bottomLeft
     case bottomRight
+    case previousDisplay
+    case nextDisplay
     case toggleFullScreen
 
     public enum Behavior: Equatable, Sendable {
         /// Move and resize the window to this part of its screen's visible area.
         case place(UnitRect)
+        /// Move the window to another display, keeping its place within the visible area.
+        case moveToDisplay(DisplayDirection)
         /// Enter or leave native macOS full screen.
         case toggleFullScreen
     }
@@ -35,6 +39,8 @@ public enum WindowAction: String, CaseIterable, Codable, Sendable {
         case .topRight: return "Top Right"
         case .bottomLeft: return "Bottom Left"
         case .bottomRight: return "Bottom Right"
+        case .previousDisplay: return "Move to Previous Display"
+        case .nextDisplay: return "Move to Next Display"
         case .toggleFullScreen: return "Toggle Full Screen"
         }
     }
@@ -50,9 +56,25 @@ public enum WindowAction: String, CaseIterable, Codable, Sendable {
         case .topRight: return .place(UnitRect(x: 0.5, y: 0, width: 0.5, height: 0.5))
         case .bottomLeft: return .place(UnitRect(x: 0, y: 0.5, width: 0.5, height: 0.5))
         case .bottomRight: return .place(UnitRect(x: 0.5, y: 0.5, width: 0.5, height: 0.5))
+        case .previousDisplay: return .moveToDisplay(.previous)
+        case .nextDisplay: return .moveToDisplay(.next)
         case .toggleFullScreen: return .toggleFullScreen
         }
     }
+
+    /// Whether the action needs a second display to do anything.
+    public var movesBetweenDisplays: Bool {
+        if case .moveToDisplay = behavior {
+            return true
+        }
+        return false
+    }
+}
+
+/// Which way to step through the displays. See `ScreenLayout.displayOrder`.
+public enum DisplayDirection: Equatable, Sendable {
+    case previous
+    case next
 }
 
 /// A rectangle in fractions of a screen's visible area. The origin is the top-left corner.

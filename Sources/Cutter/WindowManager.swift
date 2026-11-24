@@ -25,9 +25,16 @@ enum WindowManagerError: Error, CustomStringConvertible {
 }
 
 /// Moves and resizes other apps' windows through the Accessibility API.
-struct WindowManager {
+final class WindowManager {
     /// How long one Accessibility call may wait for an app to answer, in seconds.
     static let messagingTimeout: Float = 1
+
+    /// The last window Cutter placed, the frame it ended up with, and the part of the
+    /// visible area it was meant to cover. A screen does not always let a window take the
+    /// whole frame it is given. Remembering the intent lets a window that is sent on to
+    /// another display, or back, cover the right part there instead of an approximation
+    /// measured from where it landed.
+    private var lastPlacement: (window: AXUIElement, frame: CGRect, unit: UnitRect)?
 
     init() {
         // Shortcuts run on the main thread, so an app that has stopped responding must not
@@ -47,6 +54,8 @@ struct WindowManager {
         switch action.behavior {
         case .place(let unit):
             try place(window, in: unit)
+        case .moveToDisplay(let direction):
+            try move(window, toDisplay: direction)
         case .toggleFullScreen:
             try toggleFullScreen(window)
         }
@@ -81,7 +90,35 @@ struct WindowManager {
             throw WindowManagerError.noScreen
         }
         let target = PlacementGeometry.frame(for: unit, in: visibleFrame)
+        try setFrame(of: window, to: target, covering: unit, of: visibleFrame, crossingDisplays: false)
+    }
 
+    /// Moves the window to the previous or next display. Does nothing with one display.
+    private func move(_ window: AXUIElement, toDisplay direction: DisplayDirection) throws {
+        let current = try frame(of: window)
+        if bool(window, Attribute.fullScreen) == true {
+            throw WindowManagerError.windowIsFullScreen
+        }
+        // Still where Cutter last put it: go by what it was meant to cover.
+        var knownUnit: UnitRect?
+        if let last = lastPlacement, CFEqual(last.window, window), last.frame == current {
+            knownUnit = last.unit
+        }
+        guard let move = Self.currentScreenLayout().move(windowFrame: current, to: direction, covering: knownUnit) else {
+            return
+        }
+        try setFrame(of: window, to: move.frame, covering: move.unit, of: move.visibleFrame, crossingDisplays: true)
+    }
+
+    /// Gives the window a frame, and keeps it on screen if it refuses the size.
+    /// `unit` is the part of `visibleFrame` that `target` covers.
+    private func setFrame(
+        of window: AXUIElement,
+        to target: CGRect,
+        covering unit: UnitRect,
+        of visibleFrame: CGRect,
+        crossingDisplays: Bool
+    ) throws {
         try withEnhancedUserInterfaceDisabled(for: window) {
             // Size first so the window fits on a smaller screen before it moves, then
             // size again because macOS can clamp the first resize to the old position.
@@ -93,20 +130,41 @@ struct WindowManager {
                 throw Self.error(for: move)
             }
 
-            guard let actual = try? frame(of: window), actual.size != target.size else {
-                return
+            var actual = try? frame(of: window)
+            if crossingDisplays {
+                // An app learns a moment after the move that its window is on another
+                // screen, and until then limits the window to the old screen's size.
+                // Ask again a few times. A window with a size limit of its own costs
+                // the full wait, which is short.
+                var attempts = 0
+                while let frame = actual, frame.size != target.size, attempts < Self.resizeAttemptsAfterMove {
+                    Thread.sleep(forTimeInterval: Self.pauseBetweenResizeAttempts)
+                    _ = set(window, kAXSizeAttribute, size: target.size)
+                    actual = try? self.frame(of: window)
+                    attempts += 1
+                }
             }
-            let origin = PlacementGeometry.settledOrigin(
-                for: unit,
-                target: target,
-                actualSize: actual.size,
-                visibleFrame: visibleFrame
-            )
-            if origin != actual.origin {
-                _ = set(window, kAXPositionAttribute, point: origin)
+
+            if let frame = actual {
+                let origin = frame.size == target.size
+                    ? target.origin
+                    : PlacementGeometry.settledOrigin(
+                        for: unit,
+                        target: target,
+                        actualSize: frame.size,
+                        visibleFrame: visibleFrame
+                    )
+                if origin != frame.origin {
+                    _ = set(window, kAXPositionAttribute, point: origin)
+                    actual = try? self.frame(of: window)
+                }
             }
+            lastPlacement = actual.map { (window, $0, unit) }
         }
     }
+
+    private static let resizeAttemptsAfterMove = 3
+    private static let pauseBetweenResizeAttempts: TimeInterval = 0.05
 
     private func toggleFullScreen(_ window: AXUIElement) throws {
         var value: CFTypeRef?

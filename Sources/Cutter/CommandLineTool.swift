@@ -44,11 +44,13 @@ enum CommandLineTool {
         for (index, screen) in layout.screens.enumerated() {
             print("  \(index + 1). \(describe(screen.frame)), usable \(describe(screen.visibleFrame))")
         }
+        let order = layout.displayOrder.map { String($0 + 1) }.joined(separator: ", ")
+        print("Order for moving between displays: \(order)")
 
         let configuration = ShortcutStore().load()
         print("Shortcuts:")
         for action in WindowAction.allCases {
-            let title = action.title.padding(toLength: 20, withPad: " ", startingAt: 0)
+            let title = action.title.padding(toLength: 26, withPad: " ", startingAt: 0)
             let shortcut = configuration.shortcut(for: action).map(KeyComboFormatter.string(for:)) ?? "-"
             print("  \(title)\(shortcut)")
         }

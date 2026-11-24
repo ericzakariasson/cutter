@@ -14,6 +14,8 @@ extension WindowAction {
         case .topRight: return "rectangle.inset.topright.filled"
         case .bottomLeft: return "rectangle.inset.bottomleft.filled"
         case .bottomRight: return "rectangle.inset.bottomright.filled"
+        case .previousDisplay: return "arrow.up.backward.square"
+        case .nextDisplay: return "arrow.down.forward.square"
         case .toggleFullScreen: return "arrow.up.left.and.arrow.down.right"
         }
     }

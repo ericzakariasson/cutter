@@ -18,8 +18,8 @@ public struct ShortcutConfiguration: Codable, Equatable, Sendable {
         .maximize: KeyCombo(keyCode: KeyCode.returnKey, modifiers: [.control, .option]),
         .leftHalf: KeyCombo(keyCode: KeyCode.leftArrow, modifiers: [.control, .option]),
         .rightHalf: KeyCombo(keyCode: KeyCode.rightArrow, modifiers: [.control, .option]),
-        .topHalf: KeyCombo(keyCode: KeyCode.upArrow, modifiers: [.control, .option]),
-        .bottomHalf: KeyCombo(keyCode: KeyCode.downArrow, modifiers: [.control, .option]),
+        .previousDisplay: KeyCombo(keyCode: KeyCode.upArrow, modifiers: [.control, .option]),
+        .nextDisplay: KeyCombo(keyCode: KeyCode.downArrow, modifiers: [.control, .option]),
     ]
 
     public init() {

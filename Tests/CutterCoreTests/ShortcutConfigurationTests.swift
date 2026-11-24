@@ -20,19 +20,25 @@ private let commandOptionF = KeyCombo(keyCode: 3, modifiers: [.command, .option]
         #expect(configuration.shortcut(for: .maximize) == controlOptionReturn)
         #expect(configuration.shortcut(for: .leftHalf) == controlOptionLeft)
         #expect(configuration.shortcut(for: .rightHalf) == controlOptionRight)
-        #expect(configuration.shortcut(for: .topHalf) == controlOptionUp)
-        #expect(configuration.shortcut(for: .bottomHalf) == controlOptionDown)
+        #expect(configuration.shortcut(for: .previousDisplay) == controlOptionUp)
+        #expect(configuration.shortcut(for: .nextDisplay) == controlOptionDown)
 
         let assigned = configuration.assignments.map(\.action)
-        #expect(assigned == [.maximize, .leftHalf, .rightHalf, .topHalf, .bottomHalf])
+        #expect(assigned == [.maximize, .leftHalf, .rightHalf, .previousDisplay, .nextDisplay])
         #expect(configuration.isDefault)
     }
 
-    @Test func cornersAndFullScreenHaveNoDefault() {
+    @Test func topAndBottomHalfCornersAndFullScreenHaveNoDefault() {
         let configuration = ShortcutConfiguration()
-        for action in [WindowAction.topLeft, .topRight, .bottomLeft, .bottomRight, .toggleFullScreen] {
+        let unassigned: [WindowAction] = [.topHalf, .bottomHalf, .topLeft, .topRight, .bottomLeft, .bottomRight, .toggleFullScreen]
+        for action in unassigned {
             #expect(configuration.shortcut(for: action) == nil)
         }
+    }
+
+    @Test func noTwoDefaultsShareAShortcut() {
+        let combos = Array(ShortcutConfiguration.defaultShortcuts.values)
+        #expect(Set(combos).count == combos.count)
     }
 
     @Test func noDefaultUsesTheCommandKey() {
@@ -121,14 +127,59 @@ private let commandOptionF = KeyCombo(keyCode: 3, modifiers: [.command, .option]
     }
 
     @Test func aShortcutTheUserGaveToAnotherActionIsNotAlsoADefault() throws {
-        // The user had put ⌃⌥↑ on Top Left before Top Half got it as a default.
+        // The user had put ⌃⌥↑ on Top Left before "previous display" got it as a default.
         let json = #"{"topLeft":{"combo":{"keyCode":126,"modifiers":3}}}"#
         let decoded = try JSONDecoder().decode(ShortcutConfiguration.self, from: Data(json.utf8))
         #expect(decoded.shortcut(for: .topLeft) == controlOptionUp)
-        #expect(decoded.shortcut(for: .topHalf) == nil)
+        #expect(decoded.shortcut(for: .previousDisplay) == nil)
         #expect(decoded.action(for: controlOptionUp) == .topLeft)
+        #expect(decoded.shortcut(for: .nextDisplay) == controlOptionDown)
 
         let combos = decoded.assignments.map(\.combo)
+        #expect(Set(combos).count == combos.count)
+    }
+
+    /// ⌃⌥↑ and ⌃⌥↓ were the defaults of Top Half and Bottom Half before they became the
+    /// defaults for moving between displays.
+    @Test func halvesTheUserSavedKeepTheirArrowsAndTheDisplayMovesStayUnassigned() throws {
+        // The user had recorded both arrows for the halves themselves.
+        let json = #"{"topHalf":{"combo":{"keyCode":126,"modifiers":3}},"bottomHalf":{"combo":{"keyCode":125,"modifiers":3}}}"#
+        let decoded = try JSONDecoder().decode(ShortcutConfiguration.self, from: Data(json.utf8))
+        #expect(decoded.shortcut(for: .topHalf) == controlOptionUp)
+        #expect(decoded.shortcut(for: .bottomHalf) == controlOptionDown)
+        #expect(decoded.shortcut(for: .previousDisplay) == nil)
+        #expect(decoded.shortcut(for: .nextDisplay) == nil)
+
+        let combos = decoded.assignments.map(\.combo)
+        #expect(Set(combos).count == combos.count)
+    }
+
+    @Test func halvesLeftOnTheirOldDefaultsGiveTheArrowsToTheDisplayMoves() throws {
+        // Nothing saved for the halves: they had the arrows only as defaults.
+        let json = #"{"maximize":{"combo":{"keyCode":3,"modifiers":10}}}"#
+        let decoded = try JSONDecoder().decode(ShortcutConfiguration.self, from: Data(json.utf8))
+        #expect(decoded.shortcut(for: .maximize) == commandOptionF)
+        #expect(decoded.shortcut(for: .topHalf) == nil)
+        #expect(decoded.shortcut(for: .bottomHalf) == nil)
+        #expect(decoded.shortcut(for: .previousDisplay) == controlOptionUp)
+        #expect(decoded.shortcut(for: .nextDisplay) == controlOptionDown)
+    }
+
+    @Test func aHalfTheUserClearedStaysCleared() throws {
+        let json = #"{"topHalf":{}}"#
+        let decoded = try JSONDecoder().decode(ShortcutConfiguration.self, from: Data(json.utf8))
+        #expect(decoded.shortcut(for: .topHalf) == nil)
+        #expect(decoded.shortcut(for: .previousDisplay) == controlOptionUp)
+    }
+
+    @Test func recordingADefaultForAnotherActionMovesIt() {
+        var configuration = ShortcutConfiguration()
+        let displaced = configuration.setShortcut(controlOptionUp, for: .topHalf)
+        #expect(displaced == .previousDisplay)
+        #expect(configuration.shortcut(for: .topHalf) == controlOptionUp)
+        #expect(configuration.shortcut(for: .previousDisplay) == nil)
+
+        let combos = configuration.assignments.map(\.combo)
         #expect(Set(combos).count == combos.count)
     }
 }
