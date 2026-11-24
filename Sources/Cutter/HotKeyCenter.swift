@@ -5,7 +5,10 @@ import CutterCore
 ///
 /// This is the one hot key API that needs no permission and keeps the key press away from
 /// the frontmost app. It is old but still what Rectangle and similar apps use.
-final class HotKeyCenter {
+///
+/// macOS does not say whether another app has registered the same shortcut: the call
+/// succeeds either way. It only rejects a combination this process already holds.
+final class HotKeyCenter: HotKeyRegistering {
     var onHotKey: ((WindowAction) -> Void)?
 
     private struct Registration {
@@ -27,12 +30,8 @@ final class HotKeyCenter {
         }
     }
 
-    var registeredCount: Int {
-        registrations.count
-    }
-
     /// Replaces every registration. Returns the status macOS gave for each shortcut it
-    /// refused, for example because another app already registered the same one.
+    /// rejected.
     @discardableResult
     func register(_ assignments: [(action: WindowAction, combo: KeyCombo)]) -> [WindowAction: OSStatus] {
         unregisterAll()

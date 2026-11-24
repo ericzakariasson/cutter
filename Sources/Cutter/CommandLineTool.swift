@@ -6,7 +6,6 @@ import ServiceManagement
 /// Checks that run instead of the menu bar app:
 ///
 ///     Cutter.app/Contents/MacOS/Cutter --diagnose
-///     Cutter.app/Contents/MacOS/Cutter --login-item status|on|off
 ///     open -n Cutter.app --stdout /tmp/cutter-self-test.log --args --self-test
 enum CommandLineTool {
     /// Returns an exit code when the arguments asked for a terminal task, or nil to start
@@ -16,14 +15,12 @@ enum CommandLineTool {
         case "--diagnose":
             diagnose()
             return 0
-        case "--login-item":
-            return loginItem(arguments.dropFirst().first)
         case "--self-test":
             return SelfTest.run()
         case "--self-test-window":
             return SelfTest.runWindowHost(screenIndex: arguments.dropFirst().first)
         case "--help", "-h":
-            print("usage: Cutter [--diagnose | --self-test | --login-item status|on|off]")
+            print("usage: Cutter [--diagnose | --self-test]")
             return 0
         #if DEBUG
         case "--snapshot-settings":
@@ -34,8 +31,8 @@ enum CommandLineTool {
         }
     }
 
-    /// Prints what Cutter sees, and checks that macOS accepts each configured shortcut by
-    /// registering it and releasing it again at once.
+    /// Prints what Cutter sees. It only reads: it changes no setting and registers no
+    /// shortcut, so it is safe to run while Cutter is in use.
     private static func diagnose() {
         print("Cutter \(AppInfo.version) (\(Bundle.main.bundleIdentifier ?? "no bundle identifier"))")
         print("Location: \(Bundle.main.bundlePath)")
@@ -49,46 +46,12 @@ enum CommandLineTool {
         }
 
         let configuration = ShortcutStore().load()
-        let hotKeys = HotKeyCenter()
-        let failures = hotKeys.register(configuration.assignments)
-        hotKeys.unregisterAll()
-
         print("Shortcuts:")
         for action in WindowAction.allCases {
             let title = action.title.padding(toLength: 20, withPad: " ", startingAt: 0)
-            guard let combo = configuration.shortcut(for: action) else {
-                print("  \(title)-")
-                continue
-            }
-            let shortcut = KeyComboFormatter.string(for: combo).padding(toLength: 8, withPad: " ", startingAt: 0)
-            if let status = failures[action] {
-                print("  \(title)\(shortcut)macOS refused it (status \(status))")
-            } else {
-                print("  \(title)\(shortcut)registers")
-            }
+            let shortcut = configuration.shortcut(for: action).map(KeyComboFormatter.string(for:)) ?? "-"
+            print("  \(title)\(shortcut)")
         }
-    }
-
-    private static func loginItem(_ argument: String?) -> Int32 {
-        do {
-            switch argument {
-            case "on":
-                try SMAppService.mainApp.register()
-            case "off":
-                try SMAppService.mainApp.unregister()
-            case "status", nil:
-                break
-            default:
-                print("usage: Cutter --login-item status|on|off")
-                return 2
-            }
-        } catch {
-            print("Failed: \(error.localizedDescription)")
-            print("Launch at login: \(LoginItem.describe(SMAppService.mainApp.status))")
-            return 1
-        }
-        print("Launch at login: \(LoginItem.describe(SMAppService.mainApp.status))")
-        return 0
     }
 
     private static func describe(_ rect: CGRect) -> String {
@@ -111,7 +74,7 @@ enum CommandLineTool {
         let model = AppModel(
             store: ShortcutStore(storage: InMemoryShortcutStorage()),
             permission: permission,
-            registersHotKeys: false
+            hotKeys: NoHotKeys()
         )
         let window = SettingsWindowController(model: model).window
 
@@ -119,6 +82,20 @@ enum CommandLineTool {
             try snapshot(window, to: "\(directory)/settings-needs-access.png")
             isTrusted = true
             permission.refresh()
+
+            // The recorder asking before it accepts ⌘Q.
+            model.recorder.onRejectedKey = {}
+            model.recorder.characterForKeyCode = { _ in "q" }
+            model.recorder.toggle(for: .maximize) { _ in }
+            if let commandQ = NSEvent.keyEvent(
+                with: .keyDown, location: .zero, modifierFlags: [.command], timestamp: 0, windowNumber: 0,
+                context: nil, characters: "q", charactersIgnoringModifiers: "q", isARepeat: false, keyCode: 12
+            ) {
+                _ = model.recorder.handle(commandQ)
+            }
+            try snapshot(window, to: "\(directory)/settings-well-known-shortcut.png")
+            model.recorder.cancel()
+
             model.setShortcut(KeyCombo(keyCode: KeyCode.returnKey, modifiers: [.control, .option]), for: .toggleFullScreen)
             try snapshot(window, to: "\(directory)/settings-access-allowed.png")
         } catch {
@@ -126,6 +103,17 @@ enum CommandLineTool {
             return 1
         }
         return 0
+    }
+
+    /// Takes over no keys.
+    private final class NoHotKeys: HotKeyRegistering {
+        var onHotKey: ((WindowAction) -> Void)?
+
+        func register(_ assignments: [(action: WindowAction, combo: KeyCombo)]) -> [WindowAction: OSStatus] {
+            [:]
+        }
+
+        func unregisterAll() {}
     }
 
     private static func snapshot(_ window: NSWindow, to path: String) throws {

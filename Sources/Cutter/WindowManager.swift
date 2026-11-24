@@ -6,6 +6,7 @@ enum WindowManagerError: Error, CustomStringConvertible {
     case accessibilityNotGranted
     case noFocusedWindow
     case windowIsFullScreen
+    case appNotResponding
     case noScreen
     case notSupported
     case failed(AXError)
@@ -15,6 +16,7 @@ enum WindowManagerError: Error, CustomStringConvertible {
         case .accessibilityNotGranted: return "Accessibility access is not granted"
         case .noFocusedWindow: return "the frontmost app has no focused window"
         case .windowIsFullScreen: return "the window is in native full screen"
+        case .appNotResponding: return "the app did not answer in time"
         case .noScreen: return "no screen found for the window"
         case .notSupported: return "the window does not support this"
         case .failed(let error): return "Accessibility error \(error.rawValue)"
@@ -24,6 +26,16 @@ enum WindowManagerError: Error, CustomStringConvertible {
 
 /// Moves and resizes other apps' windows through the Accessibility API.
 struct WindowManager {
+    /// How long one Accessibility call may wait for an app to answer, in seconds.
+    static let messagingTimeout: Float = 1
+
+    init() {
+        // Shortcuts run on the main thread, so an app that has stopped responding must not
+        // hold Cutter up. The timeout is set for the whole process: one set on an app's
+        // element does not carry over to the window elements read from it.
+        AXUIElementSetMessagingTimeout(AXUIElementCreateSystemWide(), Self.messagingTimeout)
+    }
+
     func perform(_ action: WindowAction) throws {
         guard AXIsProcessTrusted() else {
             throw WindowManagerError.accessibilityNotGranted
@@ -59,10 +71,12 @@ struct WindowManager {
     // MARK: - Actions
 
     private func place(_ window: AXUIElement, in unit: UnitRect) throws {
+        // Read the frame first: it is the call that reports an app that is not answering,
+        // so nothing else waits on that app.
+        let current = try frame(of: window)
         if bool(window, Attribute.fullScreen) == true {
             throw WindowManagerError.windowIsFullScreen
         }
-        let current = try frame(of: window)
         guard let visibleFrame = Self.currentScreenLayout().visibleFrame(forWindowFrame: current) else {
             throw WindowManagerError.noScreen
         }
@@ -95,8 +109,12 @@ struct WindowManager {
     }
 
     private func toggleFullScreen(_ window: AXUIElement) throws {
-        guard let isFullScreen = bool(window, Attribute.fullScreen) else {
-            throw WindowManagerError.notSupported
+        var value: CFTypeRef?
+        let read = AXUIElementCopyAttributeValue(window, Attribute.fullScreen as CFString, &value)
+        guard read == .success, let isFullScreen = value as? Bool else {
+            throw read == .success || read == .noValue || read == .attributeUnsupported
+                ? WindowManagerError.notSupported
+                : Self.error(for: read)
         }
         let newValue: CFBoolean = isFullScreen ? kCFBooleanFalse : kCFBooleanTrue
         let result = AXUIElementSetAttributeValue(window, Attribute.fullScreen as CFString, newValue)
@@ -111,15 +129,18 @@ struct WindowManager {
         guard let app = NSWorkspace.shared.frontmostApplication else {
             throw WindowManagerError.noFocusedWindow
         }
-        let appElement = AXUIElementCreateApplication(app.processIdentifier)
-        // The shortcut handler runs on the main thread; do not hang on an unresponsive app.
-        AXUIElementSetMessagingTimeout(appElement, 1)
+        return try focusedWindow(ofProcess: app.processIdentifier)
+    }
+
+    func focusedWindow(ofProcess pid: pid_t) throws -> AXUIElement {
+        let appElement = AXUIElementCreateApplication(pid)
 
         for attribute in [kAXFocusedWindowAttribute, kAXMainWindowAttribute] {
             var value: CFTypeRef?
             let result = AXUIElementCopyAttributeValue(appElement, attribute as CFString, &value)
-            if result == .apiDisabled {
-                throw WindowManagerError.accessibilityNotGranted
+            // Do not ask an app that is not answering a second time.
+            if result == .apiDisabled || result == .cannotComplete {
+                throw Self.error(for: result)
             }
             if result == .success, let value, CFGetTypeID(value) == AXUIElementGetTypeID() {
                 return value as! AXUIElement
@@ -140,7 +161,11 @@ struct WindowManager {
     }
 
     private static func error(for result: AXError) -> WindowManagerError {
-        result == .apiDisabled ? .accessibilityNotGranted : .failed(result)
+        switch result {
+        case .apiDisabled: return .accessibilityNotGranted
+        case .cannotComplete: return .appNotResponding
+        default: return .failed(result)
+        }
     }
 
     /// Apps with "enhanced user interface" on (set by assistive tools, and by some apps on

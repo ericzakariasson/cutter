@@ -44,6 +44,14 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         return "shown at x \(Int(frame.minX))"
     }
 
+    func menuWillOpen(_ menu: NSMenu) {
+        model.menuDidOpen()
+    }
+
+    func menuDidClose(_ menu: NSMenu) {
+        model.menuDidClose()
+    }
+
     func menuNeedsUpdate(_ menu: NSMenu) {
         menu.removeAllItems()
         let isTrusted = model.permission.isTrusted

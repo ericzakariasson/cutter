@@ -58,10 +58,18 @@ struct SettingsView: View {
             } header: {
                 Text("Shortcuts")
             } footer: {
-                Text(model.notice ?? "Click a shortcut to change it, then press the new keys. ⌫ removes it, ⎋ cancels.")
-                    .font(.footnote)
-                    .foregroundStyle(.secondary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
+                Group {
+                    if let warning = recorder.warning {
+                        Label(warning, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                    } else {
+                        Text(model.notice ?? "Click a shortcut to change it, then press the new keys. ⌫ removes it, ⎋ cancels.")
+                            .foregroundStyle(.secondary)
+                    }
+                }
+                .font(.footnote)
+                .fixedSize(horizontal: false, vertical: true)
+                .frame(maxWidth: .infinity, alignment: .leading)
             }
 
             Section {
@@ -161,10 +169,11 @@ private struct ShortcutRow: View {
     var body: some View {
         LabeledContent {
             HStack(spacing: 6) {
-                if model.failedRegistrations.contains(action) {
+                if let status = model.failedRegistrations[action] {
                     Image(systemName: "exclamationmark.triangle.fill")
                         .foregroundStyle(.yellow)
-                        .help("macOS refused this shortcut. Another app may already use it.")
+                        .help("macOS did not accept this shortcut (error \(status)), so it does nothing. Record a different one.")
+                        .accessibilityLabel("Shortcut not accepted by macOS")
                 }
 
                 Button {

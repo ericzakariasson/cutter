@@ -5,23 +5,48 @@ import Testing
 @testable import Cutter
 import CutterCore
 
-/// A model that keeps its settings in memory and never registers a global shortcut, so the
-/// tests cannot take keys away from whoever is using this Mac.
+/// Stands in for the real hot key registration, so the tests never take a key away from
+/// whoever is using this Mac. It records what would be registered.
+private final class FakeHotKeys: HotKeyRegistering {
+    var onHotKey: ((WindowAction) -> Void)?
+    var rejecting: [WindowAction: OSStatus] = [:]
+    private(set) var registered: [WindowAction: KeyCombo] = [:]
+
+    func register(_ assignments: [(action: WindowAction, combo: KeyCombo)]) -> [WindowAction: OSStatus] {
+        registered = [:]
+        var failures: [WindowAction: OSStatus] = [:]
+        for (action, combo) in assignments {
+            if let status = rejecting[action] {
+                failures[action] = status
+            } else {
+                registered[action] = combo
+            }
+        }
+        return failures
+    }
+
+    func unregisterAll() {
+        registered = [:]
+    }
+}
+
+/// A model that keeps its settings in memory and registers nothing with macOS.
 @MainActor
 private func makeModel(
     storage: InMemoryShortcutStorage = InMemoryShortcutStorage(),
-    isTrusted: Bool = true
+    hotKeys: FakeHotKeys = FakeHotKeys(),
+    isTrusted: @escaping () -> Bool = { true }
 ) -> AppModel {
     AppModel(
         store: ShortcutStore(storage: storage),
-        permission: AccessibilityPermission { isTrusted },
-        registersHotKeys: false
+        permission: AccessibilityPermission(check: isTrusted),
+        hotKeys: hotKeys
     )
 }
 
-private func keyDown(_ keyCode: UInt16, _ modifiers: NSEvent.ModifierFlags = []) -> NSEvent {
+private func keyEvent(_ type: NSEvent.EventType, _ keyCode: UInt16, _ modifiers: NSEvent.ModifierFlags) -> NSEvent {
     NSEvent.keyEvent(
-        with: .keyDown,
+        with: type,
         location: .zero,
         modifierFlags: modifiers,
         timestamp: 0,
@@ -34,13 +59,26 @@ private func keyDown(_ keyCode: UInt16, _ modifiers: NSEvent.ModifierFlags = [])
     )!
 }
 
+private func keyDown(_ keyCode: UInt16, _ modifiers: NSEvent.ModifierFlags = []) -> NSEvent {
+    keyEvent(.keyDown, keyCode, modifiers)
+}
+
+// Key positions on a US keyboard.
+private let keyA: UInt16 = 0
+private let keyC: UInt16 = 8
+private let keyQ: UInt16 = 12
 private let keyT: UInt16 = 17
+private let usLayout: [UInt16: String] = [keyA: "a", keyC: "c", keyQ: "q", keyT: "t"]
+
+private let controlOption: KeyCombo.Modifiers = [.control, .option]
+private let controlOptionReturn = KeyCombo(keyCode: KeyCode.returnKey, modifiers: controlOption)
 
 @MainActor
 @Suite struct ShortcutRecorderTests {
-    private func makeRecorder() -> ShortcutRecorder {
+    private func makeRecorder(layout: [UInt16: String] = usLayout) -> ShortcutRecorder {
         let recorder = ShortcutRecorder()
         recorder.onRejectedKey = {}
+        recorder.characterForKeyCode = { layout[$0] }
         return recorder
     }
 
@@ -50,10 +88,11 @@ private let keyT: UInt16 = 17
         recorder.toggle(for: .topHalf) { committed.append($0) }
         #expect(recorder.recordingAction == .topHalf)
 
-        let passedOn = recorder.handle(keyDown(keyT, [.command, .shift]))
+        let passedOn = recorder.handle(keyDown(keyT, [.control, .option]))
         #expect(passedOn == nil)
-        #expect(committed == [KeyCombo(keyCode: keyT, modifiers: [.command, .shift])])
+        #expect(committed == [KeyCombo(keyCode: keyT, modifiers: controlOption)])
         #expect(recorder.recordingAction == nil)
+        #expect(recorder.warning == nil)
     }
 
     @Test func rejectsAKeyWithoutARealModifierAndKeepsRecording() {
@@ -99,6 +138,95 @@ private let keyT: UInt16 = 17
         #expect(recorder.recordingAction == .leftHalf)
         recorder.cancel()
     }
+
+    @Test func aWellKnownShortcutIsOnlyAcceptedWhenPressedTwice() throws {
+        let recorder = makeRecorder()
+        var committed: [KeyCombo?] = []
+        recorder.toggle(for: .maximize) { committed.append($0) }
+
+        #expect(recorder.handle(keyDown(keyQ, [.command])) == nil)
+        #expect(committed.isEmpty)
+        #expect(recorder.recordingAction == .maximize)
+        #expect(try #require(recorder.warning).contains("usually quits the app"))
+        #expect(recorder.hint == "Again to confirm")
+
+        // Letting go of ⌘ must not wipe the request to confirm.
+        _ = recorder.handle(keyEvent(.flagsChanged, 55, []))
+        #expect(recorder.hint == "Again to confirm")
+        #expect(recorder.warning != nil)
+
+        #expect(recorder.handle(keyDown(keyQ, [.command])) == nil)
+        #expect(committed == [KeyCombo(keyCode: keyQ, modifiers: [.command])])
+        #expect(recorder.recordingAction == nil)
+        #expect(recorder.warning == nil)
+    }
+
+    @Test func afterAWarningOtherKeysAreJudgedOnTheirOwn() throws {
+        let recorder = makeRecorder()
+        var committed: [KeyCombo?] = []
+        recorder.toggle(for: .maximize) { committed.append($0) }
+
+        _ = recorder.handle(keyDown(keyQ, [.command]))
+        // Another well-known shortcut gets its own warning rather than counting as the confirmation.
+        _ = recorder.handle(keyDown(keyC, [.command]))
+        #expect(committed.isEmpty)
+        #expect(try #require(recorder.warning).contains("usually copies"))
+
+        // An ordinary shortcut is recorded at once.
+        _ = recorder.handle(keyDown(keyT, [.control, .option]))
+        #expect(committed == [KeyCombo(keyCode: keyT, modifiers: controlOption)])
+        #expect(recorder.warning == nil)
+    }
+
+    @Test func escapeAfterAWarningRecordsNothing() {
+        let recorder = makeRecorder()
+        var committed: [KeyCombo?] = []
+        recorder.toggle(for: .maximize) { committed.append($0) }
+
+        _ = recorder.handle(keyDown(keyQ, [.command]))
+        _ = recorder.handle(keyDown(KeyCode.escape))
+        #expect(committed.isEmpty)
+        #expect(recorder.recordingAction == nil)
+        #expect(recorder.warning == nil)
+    }
+
+    @Test func theFirstDefaultsNowAskFirst() throws {
+        // ⌘↩ and ⇧⌘← were Cutter's first defaults and got in the way of other apps.
+        let recorder = makeRecorder()
+        var committed: [KeyCombo?] = []
+        recorder.toggle(for: .maximize) { committed.append($0) }
+
+        _ = recorder.handle(keyDown(KeyCode.returnKey, [.command]))
+        #expect(try #require(recorder.warning).contains("sends or submits"))
+        _ = recorder.handle(keyDown(KeyCode.leftArrow, [.command, .shift]))
+        #expect(try #require(recorder.warning).contains("selects to the start or end of the line"))
+        #expect(committed.isEmpty)
+        recorder.cancel()
+    }
+
+    @Test func lettersFollowTheKeyboardLayout() throws {
+        // On a French keyboard the key in the US Q position types A.
+        let recorder = makeRecorder(layout: [keyQ: "a", keyA: "q"])
+        var committed: [KeyCombo?] = []
+        recorder.toggle(for: .maximize) { committed.append($0) }
+
+        _ = recorder.handle(keyDown(keyQ, [.command]))
+        #expect(try #require(recorder.warning).contains("selects everything"))
+        _ = recorder.handle(keyDown(keyA, [.command]))
+        #expect(try #require(recorder.warning).contains("quits the app"))
+        #expect(committed.isEmpty)
+        recorder.cancel()
+    }
+
+    @Test func theDefaultShortcutsAreRecordedWithoutAWarning() {
+        for (action, combo) in ShortcutConfiguration.defaultShortcuts {
+            let recorder = makeRecorder()
+            var committed: [KeyCombo?] = []
+            recorder.toggle(for: action) { committed.append($0) }
+            _ = recorder.handle(keyDown(combo.keyCode, combo.modifiers.eventFlags))
+            #expect(committed == [combo])
+        }
+    }
 }
 
 @MainActor
@@ -114,18 +242,116 @@ private let keyT: UInt16 = 17
         let secondLaunch = makeModel(storage: storage)
         #expect(secondLaunch.configuration.shortcut(for: .topLeft) == commandOptionT)
         #expect(secondLaunch.configuration.shortcut(for: .rightHalf) == nil)
-        #expect(secondLaunch.configuration.shortcut(for: .maximize) == KeyCombo(keyCode: KeyCode.returnKey, modifiers: [.control, .option]))
+        #expect(secondLaunch.configuration.shortcut(for: .maximize) == controlOptionReturn)
     }
 
     @Test func takingAnotherActionsShortcutIsExplained() {
         let model = makeModel()
-        model.setShortcut(KeyCombo(keyCode: KeyCode.returnKey, modifiers: [.control, .option]), for: .toggleFullScreen)
+        model.setShortcut(controlOptionReturn, for: .toggleFullScreen)
         #expect(model.configuration.shortcut(for: .maximize) == nil)
         #expect(model.notice == "⌃⌥↩ now triggers Toggle Full Screen instead of Maximize.")
 
         model.resetToDefaults()
         #expect(model.notice == nil)
         #expect(model.configuration.isDefault)
+    }
+}
+
+@MainActor
+@Suite struct GlobalShortcutLifecycleTests {
+    @Test func shortcutsAreRegisteredOnlyWhileAccessibilityAccessIsGranted() {
+        let hotKeys = FakeHotKeys()
+        var isTrusted = false
+        let model = makeModel(hotKeys: hotKeys) { isTrusted }
+        #expect(hotKeys.registered.isEmpty)
+
+        isTrusted = true
+        model.permission.refresh()
+        #expect(hotKeys.registered == ShortcutConfiguration.defaultShortcuts)
+
+        isTrusted = false
+        model.permission.refresh()
+        #expect(hotKeys.registered.isEmpty)
+    }
+
+    @Test func aChangedShortcutIsRegisteredAtOnce() {
+        let hotKeys = FakeHotKeys()
+        let model = makeModel(hotKeys: hotKeys)
+        let combo = KeyCombo(keyCode: keyT, modifiers: controlOption)
+
+        model.setShortcut(combo, for: .topLeft)
+        #expect(hotKeys.registered[.topLeft] == combo)
+
+        model.setShortcut(nil, for: .maximize)
+        #expect(hotKeys.registered[.maximize] == nil)
+        #expect(hotKeys.registered.count == 5)
+    }
+
+    @Test func recordingPausesTheShortcuts() {
+        let hotKeys = FakeHotKeys()
+        let model = makeModel(hotKeys: hotKeys)
+
+        model.recorder.toggle(for: .maximize) { _ in }
+        #expect(hotKeys.registered.isEmpty)
+
+        model.recorder.cancel()
+        #expect(hotKeys.registered == ShortcutConfiguration.defaultShortcuts)
+    }
+
+    /// The menu items answer to the same keys as the global shortcuts. With both live, one
+    /// key press could run an action twice, and Toggle Full Screen would undo itself.
+    @Test func theOpenMenuTakesOverFromTheGlobalShortcuts() {
+        let hotKeys = FakeHotKeys()
+        let model = makeModel(hotKeys: hotKeys)
+        let controller = StatusMenuController(model: model) {}
+        let menu = NSMenu()
+        #expect(hotKeys.registered.count == 5)
+
+        controller.menuWillOpen(menu)
+        #expect(hotKeys.registered.isEmpty)
+
+        // Settings changed while the menu is open do not bring them back early.
+        model.setShortcut(KeyCombo(keyCode: keyT, modifiers: controlOption), for: .topLeft)
+        #expect(hotKeys.registered.isEmpty)
+
+        controller.menuDidClose(menu)
+        #expect(hotKeys.registered.count == 6)
+    }
+
+    @Test func closingTheMenuDoesNotRegisterShortcutsWithoutAccess() {
+        let hotKeys = FakeHotKeys()
+        let model = makeModel(hotKeys: hotKeys) { false }
+        model.menuDidOpen()
+        model.menuDidClose()
+        #expect(hotKeys.registered.isEmpty)
+    }
+
+    @Test func aShortcutMacOSRejectsIsReportedWithItsStatus() {
+        let hotKeys = FakeHotKeys()
+        hotKeys.rejecting = [.maximize: OSStatus(eventHotKeyExistsErr)]
+        let model = makeModel(hotKeys: hotKeys)
+
+        #expect(model.failedRegistrations == [.maximize: OSStatus(eventHotKeyExistsErr)])
+        #expect(hotKeys.registered.count == 4)
+
+        hotKeys.rejecting = [:]
+        model.setShortcut(KeyCombo(keyCode: keyT, modifiers: controlOption), for: .maximize)
+        #expect(model.failedRegistrations.isEmpty)
+    }
+
+    @Test func aGlobalShortcutRunsItsAction() {
+        // Without Accessibility access in the test process the action cannot move a
+        // window; it asks for the settings window instead, which shows the call arrived.
+        let hotKeys = FakeHotKeys()
+        let model = makeModel(hotKeys: hotKeys)
+        var settingsRequests = 0
+        model.showSettings = { settingsRequests += 1 }
+
+        guard !AXIsProcessTrusted() else {
+            return
+        }
+        hotKeys.onHotKey?(.maximize)
+        #expect(settingsRequests == 1)
     }
 }
 
@@ -164,7 +390,7 @@ private let keyT: UInt16 = 17
     }
 
     @Test func withoutAccessibilityAccessActionsAreDisabledAndTheMenuSaysWhy() throws {
-        let menu = menu(for: makeModel(isTrusted: false))
+        let menu = menu(for: makeModel { false })
         #expect(menu.items.first?.title == "Allow Accessibility Access…")
         for action in WindowAction.allCases {
             #expect(try #require(menu.item(withTitle: action.title)).isEnabled == false)

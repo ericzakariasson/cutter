@@ -8,13 +8,19 @@ import CutterCore
 /// reaching the recorder.
 final class ShortcutRecorder: ObservableObject {
     @Published private(set) var recordingAction: WindowAction?
-    /// Feedback for the recording field, such as the modifiers held so far.
+    /// Short feedback for the recording field, such as the modifiers held so far.
     @Published private(set) var hint: String?
+    /// Set when the keys pressed already mean something everywhere, like ⌘Q. The shortcut
+    /// is only accepted when the user presses it a second time.
+    @Published private(set) var warning: String?
 
     /// Called when a key press cannot be a global shortcut.
     var onRejectedKey: () -> Void = { NSSound.beep() }
+    /// What a key types on the current keyboard layout.
+    var characterForKeyCode: (UInt16) -> String? = KeyComboFormatter.layoutCharacter(for:)
 
     private var onCommit: ((KeyCombo?) -> Void)?
+    private var awaitingConfirmation: KeyCombo?
     private var eventMonitor: Any?
     private var focusObservers: [NSObjectProtocol] = []
 
@@ -36,7 +42,9 @@ final class ShortcutRecorder: ObservableObject {
         focusObservers.forEach(NotificationCenter.default.removeObserver)
         focusObservers = []
         onCommit = nil
+        awaitingConfirmation = nil
         hint = nil
+        warning = nil
         if recordingAction != nil {
             recordingAction = nil
         }
@@ -66,7 +74,10 @@ final class ShortcutRecorder: ObservableObject {
         let modifiers = KeyCombo.Modifiers(event.modifierFlags)
 
         guard event.type == .keyDown else {
-            hint = modifiers.isEmpty ? nil : modifiers.symbols
+            // Keep the request to confirm on screen while the keys are released.
+            if awaitingConfirmation == nil {
+                hint = modifiers.isEmpty ? nil : modifiers.symbols
+            }
             return event
         }
 
@@ -81,10 +92,22 @@ final class ShortcutRecorder: ObservableObject {
 
         let combo = KeyCombo(keyCode: event.keyCode, modifiers: modifiers)
         guard combo.isValidGlobalShortcut else {
+            awaitingConfirmation = nil
+            warning = nil
             hint = "Add ⌘, ⌃ or ⌥"
             onRejectedKey()
             return nil
         }
+
+        if combo != awaitingConfirmation,
+           let meaning = WellKnownShortcut.usualMeaning(of: combo, character: characterForKeyCode(combo.keyCode)) {
+            let name = KeyComboFormatter.string(for: combo)
+            awaitingConfirmation = combo
+            hint = "Again to confirm"
+            warning = "\(name) usually \(meaning). As a Cutter shortcut it would stop doing that in every app. Press \(name) again to use it anyway, or press other keys."
+            return nil
+        }
+
         commit(combo)
         return nil
     }

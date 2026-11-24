@@ -5,7 +5,8 @@ import CutterCore
 /// Checks window placement end to end without touching anyone's windows: on every screen
 /// it opens a small window in a helper process, applies each placement to it through the
 /// same Accessibility code the shortcuts use, and compares where the window ended up with
-/// where it should be.
+/// where it should be. It then makes the helper stop responding and checks that Cutter
+/// gives up on it quickly.
 ///
 /// Accessibility access belongs to the app, not to a terminal, so run it through `open`:
 ///
@@ -29,6 +30,7 @@ enum SelfTest {
         let layout = ScreenLayout(cocoaScreens: NSScreen.screens.map { ($0.frame, $0.visibleFrame) })
         var failures = 0
         var skippedScreens = 0
+        var checkedUnresponsiveApp = false
 
         for (index, screen) in layout.screens.enumerated() {
             print("Screen \(index + 1): usable area \(describe(screen.visibleFrame))")
@@ -37,7 +39,8 @@ enum SelfTest {
             host.executableURL = executable
             host.arguments = ["--self-test-window", String(index)]
             // The helper quits when this pipe closes, so it cannot outlive the test.
-            host.standardInput = Pipe()
+            let commands = Pipe()
+            host.standardInput = commands
             do {
                 try host.run()
             } catch {
@@ -93,6 +96,15 @@ enum SelfTest {
                     print("  FAIL  \(title)\(error)")
                 }
             }
+
+            if !checkedUnresponsiveApp {
+                checkedUnresponsiveApp = true
+                commands.fileHandleForWriting.write(Data("hang\n".utf8))
+                Thread.sleep(forTimeInterval: 0.5)
+                if !givesUpQuickly(manager: manager, window: window, pid: host.processIdentifier) {
+                    failures += 1
+                }
+            }
         }
 
         if failures > 0 {
@@ -106,6 +118,35 @@ enum SelfTest {
         print(skippedScreens == 0 ? "Self-test passed." : "Self-test passed on the screens it could use; \(skippedScreens) skipped.")
         return 0
     }
+
+    /// A shortcut runs on Cutter's main thread, so an app that has stopped responding must
+    /// not hold it up for long. The helper's main thread is blocked at this point.
+    private static func givesUpQuickly(manager: WindowManager, window: AXUIElement, pid: pid_t) -> Bool {
+        func seconds(_ body: () throws -> Void) -> (elapsed: TimeInterval, failed: Bool) {
+            let start = Date()
+            do {
+                try body()
+                return (Date().timeIntervalSince(start), false)
+            } catch {
+                return (Date().timeIntervalSince(start), true)
+            }
+        }
+
+        let placing = seconds { try manager.perform(.leftHalf, on: window) }
+        let finding = seconds { _ = try manager.focusedWindow(ofProcess: pid) }
+        let passed = placing.failed && finding.failed && placing.elapsed <= patience && finding.elapsed <= patience
+        print(String(
+            format: "  %@  Unresponsive app: placing gave up after %.1f s, finding its window after %.1f s (limit %.1f s each)",
+            passed ? "ok  " : "FAIL",
+            placing.elapsed,
+            finding.elapsed,
+            patience
+        ))
+        return passed
+    }
+
+    /// The longest a single action may wait for an app that does not answer.
+    private static let patience: TimeInterval = 1.5
 
     /// How far a window may be from the exact frame, in points, and still count as placed.
     private static let tolerance: CGFloat = 2
@@ -140,8 +181,18 @@ enum SelfTest {
         window.orderFrontRegardless()
 
         DispatchQueue.global().async {
-            _ = FileHandle.standardInput.readDataToEndOfFile()
-            exit(0)
+            while true {
+                let data = FileHandle.standardInput.availableData
+                if data.isEmpty {
+                    exit(0)
+                }
+                if String(decoding: data, as: UTF8.self).contains("hang") {
+                    // Stop answering, the way a beach-balling app does.
+                    DispatchQueue.main.async {
+                        Thread.sleep(forTimeInterval: 60)
+                    }
+                }
+            }
         }
         app.run()
         return 0

@@ -78,7 +78,7 @@ enum KeyComboFormatter {
     }
 
     /// What the key types on the current keyboard layout, without modifiers.
-    private static func layoutCharacter(for keyCode: UInt16) -> String? {
+    static func layoutCharacter(for keyCode: UInt16) -> String? {
         guard let source = TISCopyCurrentKeyboardLayoutInputSource()?.takeRetainedValue(),
               let property = TISGetInputSourceProperty(source, kTISPropertyUnicodeKeyLayoutData)
         else {
