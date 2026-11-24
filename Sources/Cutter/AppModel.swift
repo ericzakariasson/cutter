@@ -28,19 +28,33 @@ final class AppModel: ObservableObject {
 
     private let store: ShortcutStore
     private let hotKeys: HotKeyRegistering
-    private let windows = WindowManager()
+    private let act: (WindowAction) throws -> Void
+    private let menuAnswersTo: (KeyCombo) -> Bool
     private var isMenuOpen = false
     private var cancellables: Set<AnyCancellable> = []
 
+    /// - Parameters:
+    ///   - act: what carries out an action. The default acts on the focused window; tests
+    ///     pass their own so that they can never move anyone's windows.
+    ///   - menuAnswersTo: whether the open menu triggers a shortcut by itself.
     init(
         store: ShortcutStore = ShortcutStore(),
         permission: AccessibilityPermission = AccessibilityPermission(),
-        hotKeys: HotKeyRegistering = HotKeyCenter()
+        hotKeys: HotKeyRegistering = HotKeyCenter(),
+        act: ((WindowAction) throws -> Void)? = nil,
+        menuAnswersTo: @escaping (KeyCombo) -> Bool = { KeyComboFormatter.menuKeyEquivalent(for: $0.keyCode) != nil }
     ) {
         self.store = store
         self.permission = permission
         self.hotKeys = hotKeys
+        self.menuAnswersTo = menuAnswersTo
         self.configuration = store.load()
+        if let act {
+            self.act = act
+        } else {
+            let windows = WindowManager()
+            self.act = { try windows.perform($0) }
+        }
 
         hotKeys.onHotKey = { [weak self] action in
             self?.perform(action)
@@ -56,7 +70,7 @@ final class AppModel: ObservableObject {
 
     func perform(_ action: WindowAction) {
         do {
-            try windows.perform(action)
+            try act(action)
         } catch WindowManagerError.accessibilityNotGranted {
             permission.refresh()
             showSettings?()
@@ -84,6 +98,7 @@ final class AppModel: ObservableObject {
 
     /// While Cutter's menu is open, its items answer to the same keys as the global
     /// shortcuts. The global ones step aside so that one key press runs an action once.
+    /// A shortcut on a key the menu cannot express stays registered.
     func menuDidOpen() {
         isMenuOpen = true
         syncHotKeys()
@@ -114,8 +129,12 @@ final class AppModel: ObservableObject {
             log("shortcuts off: Accessibility access not granted")
             return
         }
-        guard !isRecording, !isMenuOpen else {
+        guard !isRecording else {
             hotKeys.unregisterAll()
+            return
+        }
+        guard !isMenuOpen else {
+            _ = hotKeys.register(configuration.assignments.filter { !menuAnswersTo($0.combo) })
             return
         }
 

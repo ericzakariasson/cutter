@@ -6,15 +6,19 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
     private let model: AppModel
     private let showSettings: () -> Void
     private let screenCount: () -> Int
+    private let currentEvent: () -> NSEvent?
     private var statusItem: NSStatusItem?
 
+    /// - Parameter currentEvent: the event being handled when a menu item's action runs.
     init(
         model: AppModel,
         screenCount: @escaping () -> Int = { NSScreen.screens.count },
+        currentEvent: @escaping () -> NSEvent? = { NSApp.currentEvent },
         showSettings: @escaping () -> Void
     ) {
         self.model = model
         self.screenCount = screenCount
+        self.currentEvent = currentEvent
         self.showSettings = showSettings
         super.init()
     }
@@ -102,6 +106,13 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         guard let rawValue = sender.representedObject as? String,
               let action = WindowAction(rawValue: rawValue)
         else {
+            return
+        }
+        // A menu key equivalent is a character, so the item also fires for another key
+        // that types it: the main 1 for a shortcut on the keypad's 1. Only the key the
+        // shortcut was recorded with counts.
+        if let event = currentEvent(), event.type == .keyDown,
+           let combo = model.configuration.shortcut(for: action), event.keyCode != combo.keyCode {
             return
         }
         model.perform(action)

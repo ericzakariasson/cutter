@@ -30,17 +30,20 @@ private final class FakeHotKeys: HotKeyRegistering {
     }
 }
 
-/// A model that keeps its settings in memory and registers nothing with macOS.
+/// A model that keeps its settings in memory, registers nothing with macOS, and hands
+/// actions to `act` instead of moving a window.
 @MainActor
 private func makeModel(
     storage: InMemoryShortcutStorage = InMemoryShortcutStorage(),
     hotKeys: FakeHotKeys = FakeHotKeys(),
+    act: @escaping (WindowAction) throws -> Void = { _ in },
     isTrusted: @escaping () -> Bool = { true }
 ) -> AppModel {
     AppModel(
         store: ShortcutStore(storage: storage),
         permission: AccessibilityPermission(check: isTrusted),
-        hotKeys: hotKeys
+        hotKeys: hotKeys,
+        act: act
     )
 }
 
@@ -340,16 +343,21 @@ private let controlOptionReturn = KeyCombo(keyCode: KeyCode.returnKey, modifiers
     }
 
     @Test func aGlobalShortcutRunsItsAction() {
-        // Without Accessibility access in the test process the action cannot move a
-        // window; it asks for the settings window instead, which shows the call arrived.
         let hotKeys = FakeHotKeys()
-        let model = makeModel(hotKeys: hotKeys)
+        var performed: [WindowAction] = []
+        let model = makeModel(hotKeys: hotKeys, act: { performed.append($0) })
+
+        hotKeys.onHotKey?(.nextDisplay)
+        #expect(performed == [.nextDisplay])
+        withExtendedLifetime(model) {}
+    }
+
+    @Test func anActionThatFindsAccessibilityAccessGoneOpensTheSettings() {
+        let hotKeys = FakeHotKeys()
+        let model = makeModel(hotKeys: hotKeys, act: { _ in throw WindowManagerError.accessibilityNotGranted })
         var settingsRequests = 0
         model.showSettings = { settingsRequests += 1 }
 
-        guard !AXIsProcessTrusted() else {
-            return
-        }
         hotKeys.onHotKey?(.maximize)
         #expect(settingsRequests == 1)
     }

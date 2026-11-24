@@ -51,7 +51,9 @@ public enum KeyCode {
     public static let space: UInt16 = 49
     public static let delete: UInt16 = 51
     public static let escape: UInt16 = 53
+    public static let keypadClear: UInt16 = 71
     public static let keypadEnter: UInt16 = 76
+    public static let help: UInt16 = 114
     public static let home: UInt16 = 115
     public static let pageUp: UInt16 = 116
     public static let forwardDelete: UInt16 = 117
@@ -70,12 +72,18 @@ public enum KeyCode {
 
     public static let functionKeys = Set(functionKeyCodes)
 
+    /// The numeric keypad's digits and operators: keys that type a character the main
+    /// part of the keyboard also has. Clear and Enter are not among them.
+    public static let keypadCharacterKeys: Set<UInt16> = [65, 67, 69, 75, 78, 81, 82, 83, 84, 85, 86, 87, 88, 89, 91, 92]
+
     /// A display name for keys that do not type a character. Nil for ordinary keys, whose
     /// label depends on the keyboard layout.
     public static func specialKeyName(for keyCode: UInt16) -> String? {
         switch keyCode {
         case returnKey: return "↩"
         case keypadEnter: return "⌅"
+        case keypadClear: return "⌧"
+        case help: return "Help"
         case tab: return "⇥"
         case space: return "Space"
         case delete: return "⌫"

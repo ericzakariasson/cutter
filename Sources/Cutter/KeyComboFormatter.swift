@@ -43,12 +43,21 @@ enum KeyComboFormatter {
             return special
         }
         if let character = layoutCharacter(for: keyCode) {
-            return character.uppercased()
+            // The keypad's 1 and the main 1 are different shortcuts; tell them apart.
+            return KeyCode.keypadCharacterKeys.contains(keyCode) ? "Keypad \(character)" : character.uppercased()
         }
         return "Key \(keyCode)"
     }
 
-    /// The key equivalent that makes an `NSMenuItem` display this key, if it has one.
+    /// The key equivalent that makes an `NSMenuItem` display this key and answer to it
+    /// while the menu is open, if the key has one. Keypad Clear and Help have none.
+    ///
+    /// These are the characters AppKit documents for menu items, which are not always
+    /// the ones a key event carries: Delete is 0x08 here and 0x7F in the event, Forward
+    /// Delete is 0x7F here and a function-key character in the event.
+    ///
+    /// A key equivalent names a character, not a key. The keypad's 1 gets "1", so the
+    /// item also answers to the main 1; `StatusMenuController` checks which key it was.
     static func menuKeyEquivalent(for keyCode: UInt16) -> String? {
         let functionKey: Int?
         switch keyCode {
@@ -67,6 +76,7 @@ enum KeyComboFormatter {
         case KeyCode.end: functionKey = NSEndFunctionKey
         case KeyCode.pageUp: functionKey = NSPageUpFunctionKey
         case KeyCode.pageDown: functionKey = NSPageDownFunctionKey
+        case KeyCode.keypadClear, KeyCode.help: return nil
         default:
             if let index = KeyCode.functionKeyCodes.firstIndex(of: keyCode) {
                 functionKey = NSF1FunctionKey + index
