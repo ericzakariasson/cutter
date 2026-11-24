@@ -2,6 +2,10 @@
 
 A macOS menu bar app that moves and resizes the focused window with global keyboard shortcuts.
 
+![Animation of Cutter's default shortcuts. On two displays, one above the other, a window takes the left half of the lower display with ⌃⌥←, the right half with ⌃⌥→ and the whole visible area with ⌃⌥↩, then moves to the display above with ⌃⌥↑ and back down with ⌃⌥↓.](docs/demo.gif)
+
+The animation is drawn by `./scripts/make-demo.sh` from the app's own placement code and default shortcuts.
+
 | Action | Default shortcut |
 | --- | --- |
 | Maximize (fills the screen below the menu bar and above the Dock; not native full screen) | ⌃⌥↩ |
@@ -87,6 +91,7 @@ Add a case to `WindowAction` in `Sources/CutterCore/WindowAction.swift` with a t
 
 - `Sources/CutterCore`: actions, frame math, the shortcut model and its storage. No AppKit; covered by unit tests.
 - `Sources/Cutter`: the app. Global shortcuts (`HotKeyCenter`), window control through the Accessibility API (`WindowManager`), the permission flow, the menu and the settings window.
+- `Sources/CutterDemo`: draws the animation above, `docs/demo.gif`, off-screen. Run `./scripts/make-demo.sh` to regenerate it after changing the placements or the default shortcuts; add `--mp4 <file>` for an H.264 movie as well.
 - `scripts`: building, signing and testing. `make-icon.swift` draws `Support/AppIcon.icns`.
 
 ## Known limits

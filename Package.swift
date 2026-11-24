@@ -16,9 +16,20 @@ let package = Package(
             dependencies: ["CutterCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
+        // Draws the README's demo clip off-screen. Run it with scripts/make-demo.sh.
+        .executableTarget(
+            name: "CutterDemo",
+            dependencies: ["CutterCore"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
         .testTarget(
             name: "CutterCoreTests",
             dependencies: ["CutterCore"],
+            swiftSettings: [.swiftLanguageMode(.v5)]
+        ),
+        .testTarget(
+            name: "CutterDemoTests",
+            dependencies: ["CutterDemo", "CutterCore"],
             swiftSettings: [.swiftLanguageMode(.v5)]
         ),
         .testTarget(
