@@ -8,6 +8,8 @@
 	<string>Cutter</string>
 	<key>CFBundleExecutable</key>
 	<string>Cutter</string>
+	<key>CFBundleIconFile</key>
+	<string>AppIcon</string>
 	<key>CFBundleIdentifier</key>
 	<string>com.ericzakariasson.Cutter</string>
 	<key>CFBundleInfoDictionaryVersion</key>
