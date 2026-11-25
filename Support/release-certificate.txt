@@ -1,0 +1,6 @@
+# SHA-1 of the certificate that signs Cutter releases, on a line of its own below.
+# scripts/setup-release-key.sh writes it. scripts/make-dmg.sh refuses to package a release
+# signed with another key, because people who gave an earlier release Accessibility
+# access would lose it. To check a copy of Cutter against it:
+#
+#   codesign --display --requirements - /Applications/Cutter.app
