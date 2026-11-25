@@ -75,7 +75,7 @@ Run the tests with `./scripts/test.sh`.
 3. `./scripts/make-dmg.sh` builds the app for Apple silicon and Intel, asks for the passphrase, signs, and writes `dist/Cutter-<version>.dmg`. It prints the DMG's size and SHA-256.
 4. On GitHub, create a release with the tag `v<version>`, attach the DMG, and put the SHA-256 in the notes.
 
-`make-dmg.sh` needs only the Command Line Tools and opens nothing on screen. `CUTTER_SIGNING=adhoc ./scripts/make-dmg.sh` makes a DMG to try out without the release key; its name ends in `-adhoc` and it is not for publishing.
+`make-dmg.sh` needs only the Command Line Tools and opens nothing on screen. `CUTTER_SIGNING=adhoc ./scripts/make-dmg.sh` makes a DMG to try out without the release key; its name ends in `-adhoc` and it is not for publishing. `./scripts/test-dmg.sh` checks both scripts with a throwaway key.
 
 ## First run
 
