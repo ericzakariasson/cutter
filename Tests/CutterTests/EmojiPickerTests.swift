@@ -196,6 +196,20 @@ import Testing
         #expect(world.keystrokes == 0)
     }
 
+    /// The keystroke of the last resort is exactly Control-Command-Space. The keys of
+    /// Cutter's own shortcut, Control and Option by default, are down when it is sent;
+    /// Option must not be in it, nor Shift. The events are built here and not sent.
+    @Test func theKeystrokeCarriesControlAndCommandAndNothingElse() throws {
+        let events = try #require(EmojiPicker.keystrokeEvents())
+        #expect(events.count == 2)
+        #expect(events.map(\.type) == [.keyDown, .keyUp])
+        for event in events {
+            #expect(event.getIntegerValueField(.keyboardEventKeycode) == 49)
+            let held = event.flags.intersection([.maskControl, .maskCommand, .maskAlternate, .maskShift, .maskSecondaryFn, .maskAlphaShift])
+            #expect(held == [.maskControl, .maskCommand])
+        }
+    }
+
     @Test func theMarksItLooksForAreTheSystemsOwn() {
         #expect(EmojiPicker.menuItemIdentifier == "orderFrontCharacterPalette:")
         #expect(EmojiPicker.inputSourceID == "com.apple.CharacterPaletteIM")

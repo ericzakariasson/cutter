@@ -78,7 +78,7 @@ private let defaultCount = ShortcutConfiguration.defaultShortcuts.count
 /// What stays registered without Accessibility access: the two actions that move no window.
 private let screenshotsShortcutOnly: [WindowAction: KeyCombo] = [
     .recentScreenshots: KeyCombo(keyCode: KeyCode.s, modifiers: controlOption),
-    .emojiAndSymbols: KeyCombo(keyCode: KeyCode.e, modifiers: [.control, .shift]),
+    .emojiAndSymbols: KeyCombo(keyCode: KeyCode.e, modifiers: controlOption),
 ]
 private let controlOptionReturn = KeyCombo(keyCode: KeyCode.returnKey, modifiers: controlOption)
 
@@ -347,7 +347,7 @@ private let controlOptionReturn = KeyCombo(keyCode: KeyCode.returnKey, modifiers
         model.showEmojiAndSymbols = { shown += 1 }
         model.toggleRecentScreenshots = { toggles += 1 }
 
-        #expect(hotKeys.registered[.emojiAndSymbols] == KeyCombo(keyCode: KeyCode.e, modifiers: [.control, .shift]))
+        #expect(hotKeys.registered[.emojiAndSymbols] == KeyCombo(keyCode: KeyCode.e, modifiers: controlOption))
         hotKeys.onHotKey?(.emojiAndSymbols)
         #expect(shown == 1)
         #expect(toggles == 0)
@@ -472,7 +472,7 @@ private let controlOptionReturn = KeyCombo(keyCode: KeyCode.returnKey, modifiers
         // keys and read differently on other keyboard layouts. Their modifiers do not.
         let defaults = ShortcutConfiguration.defaultShortcuts
         #expect(defaults.count == expected.count + 2)
-        #expect(defaults[.emojiAndSymbols]?.modifiers.symbols == "⌃⇧")
+        #expect(defaults[.emojiAndSymbols]?.modifiers.symbols == "⌃⌥")
         for (action, string) in expected {
             let combo = defaults[action]
             #expect(combo.map(KeyComboFormatter.string(for:)) == string)

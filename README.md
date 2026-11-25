@@ -17,7 +17,7 @@ The animation is drawn by `./scripts/make-demo.sh` from the app's own placement 
 | Top Left, Top Right, Bottom Left, Bottom Right | none |
 | Toggle Full Screen (native) | none |
 | Show Recent Screenshots | ⌃⌥S |
-| Show Emoji & Symbols (the macOS emoji picker, in the app you are typing in) | ⌃⇧E |
+| Show Emoji & Symbols (the macOS emoji picker, in the app you are typing in) | ⌃⌥E |
 
 Every shortcut can be changed or removed in the settings window. With several displays, a placement applies to the display the window is on.
 
@@ -58,7 +58,7 @@ The panel has the keyboard while it is open and gives it back when it closes. It
 
 ## Emoji picker
 
-⌃⇧E, or Show Emoji & Symbols in the menu, opens the macOS emoji picker in the app in front. What you pick is typed where your insertion point is in that app, as if you had chosen Edit > Emoji & Symbols there.
+⌃⌥E, or Show Emoji & Symbols in the menu, opens the macOS emoji picker in the app in front. What you pick is typed where your insertion point is in that app, as if you had chosen Edit > Emoji & Symbols there.
 
 - **How it opens.** Cutter presses the app's own Emoji & Symbols menu item, which it finds by the mark macOS puts on that item in every app. It does not depend on the keys macOS has given the picker on your Mac (⌃⌘Space on some, the Globe key and E on others) or on the language of the menus.
 - **Apps without that menu item.** A few apps have none. There Cutter asks macOS for the picker the way the Input menu's Show Emoji & Symbols does. It may come up as the larger Character Viewer window instead of the small picker at the insertion point.
@@ -72,7 +72,8 @@ A shortcut belongs to Cutter while Cutter runs: the frontmost app no longer rece
 
 - VoiceOver uses Control+Option as its modifier, and Control+Option+arrows move its cursor. If you use VoiceOver, pick other shortcuts.
 - Rectangle and Magnet use the same combinations by default. Run only one of them with these shortcuts.
-- ⌃⇧E is the emoji picker's. An app that uses ⌃⇧E itself no longer receives it while Cutter runs; give the picker other keys in Settings if that is in your way.
+
+⌃⌥S and ⌃⌥E are letter keys, and some apps have a use of their own for one of them. Such an app no longer receives it while Cutter runs; give the action other keys in Settings if that is in your way.
 
 macOS does not tell an app that another app has registered the same shortcut, so Cutter cannot warn about such a clash. If a shortcut does nothing or does the wrong thing, look for another app using it.
 

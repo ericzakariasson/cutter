@@ -21,7 +21,7 @@ public struct ShortcutConfiguration: Codable, Equatable, Sendable {
         .previousDisplay: KeyCombo(keyCode: KeyCode.upArrow, modifiers: [.control, .option]),
         .nextDisplay: KeyCombo(keyCode: KeyCode.downArrow, modifiers: [.control, .option]),
         .recentScreenshots: KeyCombo(keyCode: KeyCode.s, modifiers: [.control, .option]),
-        .emojiAndSymbols: KeyCombo(keyCode: KeyCode.e, modifiers: [.control, .shift]),
+        .emojiAndSymbols: KeyCombo(keyCode: KeyCode.e, modifiers: [.control, .option]),
     ]
 
     public init() {

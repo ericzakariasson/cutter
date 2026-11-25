@@ -24,32 +24,43 @@ private let commandOptionF = KeyCombo(keyCode: 3, modifiers: [.command, .option]
         #expect(configuration.shortcut(for: .nextDisplay) == controlOptionDown)
         #expect(configuration.shortcut(for: .recentScreenshots) == KeyCombo(keyCode: KeyCode.s, modifiers: controlOption))
 
-        #expect(configuration.shortcut(for: .emojiAndSymbols) == KeyCombo(keyCode: KeyCode.e, modifiers: [.control, .shift]))
+        #expect(configuration.shortcut(for: .emojiAndSymbols) == KeyCombo(keyCode: KeyCode.e, modifiers: controlOption))
 
         let assigned = configuration.assignments.map(\.action)
         #expect(assigned == [.maximize, .leftHalf, .rightHalf, .previousDisplay, .nextDisplay, .recentScreenshots, .emojiAndSymbols])
         #expect(configuration.isDefault)
     }
 
-    /// The emoji picker is on the keys it was asked for; everything else is on Control-Option.
-    @Test func everyDefaultUsesControlOptionExceptTheEmojiPicker() {
-        for (action, combo) in ShortcutConfiguration.defaultShortcuts {
-            #expect(combo.modifiers == (action == .emojiAndSymbols ? [.control, .shift] : controlOption))
+    @Test func everyDefaultUsesControlOption() {
+        for (_, combo) in ShortcutConfiguration.defaultShortcuts {
+            #expect(combo.modifiers == controlOption)
         }
     }
 
     /// The emoji shortcut arrives as a default in a later version too. Someone who has
-    /// already put ⌃⇧E on another action keeps it there.
-    @Test func aSavedControlShiftEKeepsItsActionWhenTheEmojiDefaultArrives() throws {
-        let json = #"{"topRight":{"combo":{"keyCode":14,"modifiers":5}}}"#
+    /// already put ⌃⌥E on another action keeps it there.
+    @Test func aSavedControlOptionEKeepsItsActionWhenTheEmojiDefaultArrives() throws {
+        let json = #"{"topRight":{"combo":{"keyCode":14,"modifiers":3}}}"#
         let decoded = try JSONDecoder().decode(ShortcutConfiguration.self, from: Data(json.utf8))
-        #expect(decoded.shortcut(for: .topRight) == KeyCombo(keyCode: KeyCode.e, modifiers: [.control, .shift]))
+        #expect(decoded.shortcut(for: .topRight) == KeyCombo(keyCode: KeyCode.e, modifiers: controlOption))
         #expect(decoded.shortcut(for: .emojiAndSymbols) == nil)
-        // Another choice of his own for the picker is kept as well.
-        var configuration = decoded
-        configuration.setShortcut(KeyCombo(keyCode: KeyCode.e, modifiers: [.control, .option]), for: .emojiAndSymbols)
-        #expect(configuration.shortcut(for: .emojiAndSymbols) == KeyCombo(keyCode: KeyCode.e, modifiers: [.control, .option]))
-        #expect(configuration.shortcut(for: .topRight) == KeyCombo(keyCode: KeyCode.e, modifiers: [.control, .shift]))
+    }
+
+    /// A shortcut saved for the picker itself is what it answers to, whatever the
+    /// default is, and takes nothing from the other actions.
+    @Test func aShortcutSavedForTheEmojiPickerWinsOverItsDefault() throws {
+        let json = #"{"emojiAndSymbols":{"combo":{"keyCode":14,"modifiers":5}}}"#
+        let decoded = try JSONDecoder().decode(ShortcutConfiguration.self, from: Data(json.utf8))
+        #expect(decoded.shortcut(for: .emojiAndSymbols) == KeyCombo(keyCode: KeyCode.e, modifiers: [.control, .shift]))
+        #expect(decoded.action(for: KeyCombo(keyCode: KeyCode.e, modifiers: controlOption)) == nil)
+        #expect(decoded.shortcut(for: .maximize) == ShortcutConfiguration.defaultShortcuts[.maximize])
+    }
+
+    /// Control-Shift-E was the picker's default for a short while. It is nobody's now.
+    @Test func controlShiftEIsNoDefault() {
+        let configuration = ShortcutConfiguration()
+        #expect(configuration.action(for: KeyCombo(keyCode: KeyCode.e, modifiers: [.control, .shift])) == nil)
+        #expect(configuration.action(for: KeyCombo(keyCode: KeyCode.e, modifiers: controlOption)) == .emojiAndSymbols)
     }
 
     @Test func theEmojiPickerIsCalledWhatMacOSCallsIt() {

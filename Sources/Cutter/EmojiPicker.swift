@@ -244,17 +244,31 @@ extension EmojiPicker {
     /// Control-Command-Space with nothing else held: the keys of Cutter's own shortcut,
     /// still down at this moment, are not part of it.
     static func postKeystroke() -> Bool {
-        guard let source = CGEventSource(stateID: .privateState) else {
+        guard let events = keystrokeEvents() else {
             return false
         }
+        events.forEach { $0.post(tap: .cghidEventTap) }
+        return true
+    }
+
+    /// The key going down and coming up, built and not sent.
+    ///
+    /// The events come from a source of their own, which knows nothing of the keys held
+    /// on the keyboard, and carry exactly Control and Command: whatever else is down,
+    /// Option from Cutter's default shortcut for one, is not in them.
+    static func keystrokeEvents() -> [CGEvent]? {
+        guard let source = CGEventSource(stateID: .privateState) else {
+            return nil
+        }
+        var events: [CGEvent] = []
         for isDown in [true, false] {
             guard let event = CGEvent(keyboardEventSource: source, virtualKey: CGKeyCode(KeyCode.space), keyDown: isDown) else {
-                return false
+                return nil
             }
             event.flags = [.maskControl, .maskCommand]
-            event.post(tap: .cghidEventTap)
+            events.append(event)
         }
-        return true
+        return events
     }
 
     /// Two signs of a picker, neither of them certain: a window of the Character Viewer
