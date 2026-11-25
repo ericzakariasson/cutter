@@ -175,14 +175,18 @@ struct ScreenshotBrowserView: View {
                     ),
                     spacing: 10
                 ) {
-                    ForEach(Array(model.screenshots.enumerated()), id: \.element) { index, screenshot in
+                    // Each cell is known by its file, in the list and to the scroll view
+                    // alike. Known by its place in the list instead, a cell stayed as it
+                    // was when the list changed: the grid drew the old pictures while
+                    // the keyboard acted on the new list.
+                    ForEach(Array(model.screenshots.enumerated()), id: \.element.url) { index, screenshot in
                         ScreenshotCell(
                             screenshot: screenshot,
                             isSelected: model.selection == index,
                             thumbnails: thumbnails,
                             version: model.picturesVersion
                         )
-                        .id(index)
+                        .id(screenshot.url)
                         .onTapGesture(count: 2) {
                             model.edit(screenshot)
                         }
@@ -206,10 +210,10 @@ struct ScreenshotBrowserView: View {
                 .padding(.horizontal, Self.padding)
                 .padding(.vertical, 8)
             }
-            .onChange(of: model.selection) { selection in
-                if let selection {
+            .onChange(of: model.selectedScreenshot?.url) { selected in
+                if let selected {
                     withAnimation(.easeOut(duration: 0.12)) {
-                        proxy.scrollTo(selection)
+                        proxy.scrollTo(selected)
                     }
                 }
             }
@@ -367,6 +371,10 @@ private struct ScreenshotCell: View {
             }
         }
         .onChange(of: version) { _ in
+            loadThumbnail()
+        }
+        .onChange(of: screenshot) { _ in
+            // The same file with another date is another picture.
             loadThumbnail()
         }
         .accessibilityElement(children: .ignore)

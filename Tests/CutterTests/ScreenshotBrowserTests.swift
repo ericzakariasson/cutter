@@ -1179,6 +1179,58 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
         return nil
     }
 
+    private func marked(_ name: String, in folder: URL, width: Int, minutesAfterStart: Double) throws -> URL {
+        let file = folder.appendingPathComponent(name)
+        try picture(width: width, height: 300).write(to: file)
+        try ScreenshotFinder.markAsScreenCapture(file)
+        let date = Date(timeIntervalSinceReferenceDate: 800_000_000 + minutesAfterStart * 60)
+        try FileManager.default.setAttributes([.creationDate: date, .modificationDate: date], ofItemAtPath: file.path)
+        return file
+    }
+
+    /// A panel that has already shown a list must draw a new list, not the cells it
+    /// drew before. With the old cells left standing, a new screenshot was missing from
+    /// the grid while the keyboard acted on it: the highlighted picture and the one
+    /// Return or Markup worked on were not the same.
+    @Test func aNewScreenshotIsDrawnInAPanelThatAlreadyShowedTheOlderOnes() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("CutterTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        for (index, name) in ["Older A.png", "Older B.png", "Older C.png"].enumerated() {
+            _ = try marked(name, in: folder, width: 400, minutesAfterStart: Double(index))
+        }
+
+        var environment = ScreenshotBrowserModel.Environment()
+        environment.location = { (folder, nil) }
+        environment.inBackground = { $0() }
+        environment.onMain = { $0() }
+        let model = ScreenshotBrowserModel(environment: environment)
+        let thumbnails = ThumbnailStore()
+        let view = NSHostingView(rootView: ScreenshotBrowserView(model: model, thumbnails: thumbnails, opaqueBackground: true))
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: ScreenshotBrowserView.size),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.contentView = view
+
+        model.reload()
+        #expect(model.screenshots.count == 3)
+        for screenshot in model.screenshots {
+            #expect(try await thumbnail(of: screenshot, in: thumbnails, view: view) != nil)
+        }
+
+        // A screenshot is taken; the panel is opened again.
+        let new = try marked("Newest.png", in: folder, width: 900, minutesAfterStart: 10)
+        model.reload()
+        #expect(model.screenshots.count == 4)
+        let newest = try #require(model.screenshots.first)
+        #expect(newest.url.lastPathComponent == new.lastPathComponent)
+
+        // Its cell exists and has asked for its picture, which is the wide one.
+        let drawn = try #require(try await thumbnail(of: newest, in: thumbnails, view: view))
+        #expect(abs(drawn.size.width / drawn.size.height - 3.0) < 0.05)
+    }
+
     @Test func anEditedScreenshotGetsANewThumbnailWithoutThePanelBeingRebuilt() async throws {
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("CutterTests-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
