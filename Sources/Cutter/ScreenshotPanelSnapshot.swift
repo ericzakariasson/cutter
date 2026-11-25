@@ -3,8 +3,12 @@ import AppKit
 import CutterCore
 import SwiftUI
 
-/// Draws the recent-screenshots panel into a PNG without showing it, filled with made-up
-/// pictures in a temporary folder. No real screenshot is read. Debug builds only:
+/// Draws the contents of the recent-screenshots panel into a PNG without showing it,
+/// filled with made-up pictures in a temporary folder. No real screenshot is read.
+///
+/// The drawing has a plain background. The panel's real surface, Liquid Glass or a
+/// blur, takes its look from what is behind the window and cannot be drawn off-screen.
+/// Debug builds only:
 ///
 ///     .build/debug/Cutter --snapshot-screenshots <file.png>
 enum ScreenshotPanelSnapshot {

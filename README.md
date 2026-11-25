@@ -36,13 +36,14 @@ Move to Previous Display and Move to Next Display send the focused window to ano
 | In the panel | Keyboard | Mouse |
 | --- | --- | --- |
 | Choose a screenshot | Arrow keys, Home, End | Click |
-| Open it | ↩ | Double-click |
-| Copy it to the clipboard | ⌘C | Right-click > Copy |
-| Show it in Finder | ⌘↩ or ⌘R | Right-click > Show in Finder |
+| Open it | ↩ | Double-click, or the Open button |
+| Copy it to the clipboard | ⌘C | The Copy button, or right-click > Copy |
+| Show it in Finder | ⌘↩ or ⌘R | The Show in Finder button, or right-click |
 | Use it in another app | | Drag the thumbnail there |
 
 The panel has the keyboard while it is open and gives it back when it closes. It closes after opening, copying or showing a screenshot in Finder, after a thumbnail has been dragged out, and whenever your attention goes elsewhere: a click outside it, another app coming forward, or anything else taking the keyboard. A copied screenshot pastes as a picture where pictures go and as a file in Finder.
 
+- **How it looks.** On macOS 26 the panel is a sheet of the system's Liquid Glass; on macOS 13 to 15 it uses the standard blurred material. The selected screenshot is marked the way Finder marks a selected icon, in your accent colour.
 - **Where it looks.** In the folder macOS saves screenshots to: the one chosen under Options in the Screenshot toolbar (⇧⌘5), or the Desktop when none was chosen.
 - **What counts as a screenshot.** A picture that macOS marked as a screenshot when it saved it, whatever the file is called now, or one whose name starts with "Screenshot" or with your own screenshot name prefix. Screen recordings are not shown. Screenshots moved out of the folder are not found.
 - **How many.** The newest 30.

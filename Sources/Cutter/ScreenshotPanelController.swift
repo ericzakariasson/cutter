@@ -127,6 +127,8 @@ final class ScreenshotPanelController: NSObject, NSWindowDelegate {
             ))
         }
         panel.makeKeyAndOrderFront(nil)
+        // The shadow follows the sheet's shape, which is only known once it is on screen.
+        panel.invalidateShadow()
         // The log says when the panel had the keyboard and why it let go, and nothing
         // about the screenshots.
         NSLog("Cutter: screenshots panel opened%@", panel.isKeyWindow ? "" : " without the keyboard; the mouse still works in it")
@@ -254,18 +256,25 @@ final class ScreenshotPanelController: NSObject, NSWindowDelegate {
         }
     }
 
-    private func makePanel() -> KeyPanel {
+    /// Builds the panel without showing it.
+    func makePanel() -> KeyPanel {
+        let hostingView = NSHostingView(rootView: ScreenshotBrowserView(model: model, thumbnails: thumbnails))
+        let surface = ScreenshotPanelSurface(content: hostingView, contentSize: ScreenshotBrowserView.size)
+        // A click in the clear margin around the sheet is a click beside the panel.
+        surface.onClickBeside = { [weak self] in
+            self?.close(.clickElsewhere)
+        }
+
+        // No title bar and no window background: the surface is all there is to see.
         let panel = KeyPanel(
-            contentRect: NSRect(origin: .zero, size: ScreenshotBrowserView.size),
-            styleMask: [.nonactivatingPanel, .titled, .fullSizeContentView],
+            contentRect: surface.frame,
+            styleMask: [.nonactivatingPanel, .borderless],
             backing: .buffered,
             defer: true
         )
-        panel.titleVisibility = .hidden
-        panel.titlebarAppearsTransparent = true
-        for button in [NSWindow.ButtonType.closeButton, .miniaturizeButton, .zoomButton] {
-            panel.standardWindowButton(button)?.isHidden = true
-        }
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = true
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.hidesOnDeactivate = false
@@ -286,10 +295,7 @@ final class ScreenshotPanelController: NSObject, NSWindowDelegate {
             self.model.perform(command)
             return true
         }
-
-        let hostingView = NSHostingView(rootView: ScreenshotBrowserView(model: model, thumbnails: thumbnails))
-        hostingView.frame = NSRect(origin: .zero, size: ScreenshotBrowserView.size)
-        panel.contentView = hostingView
+        panel.contentView = surface
         return panel
     }
 }

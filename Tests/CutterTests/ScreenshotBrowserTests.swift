@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import Testing
 
 @testable import Cutter
@@ -630,5 +631,79 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
         try Data("not a picture".utf8).write(to: file)
         defer { try? FileManager.default.removeItem(at: file) }
         #expect(ThumbnailStore().load(Screenshot(url: file, date: Date())) == nil)
+    }
+}
+
+/// The panel's surface, built but never shown. What it looks like on screen cannot be
+/// tested here; that it is the system's own glass, and how it is laid out, can.
+@MainActor
+@Suite struct ScreenshotPanelSurfaceTests {
+    private func makeSurface() throws -> (panel: KeyPanel, surface: ScreenshotPanelSurface) {
+        let panel = ScreenshotPanelController().makePanel()
+        let surface = try #require(panel.contentView as? ScreenshotPanelSurface)
+        surface.layoutSubtreeIfNeeded()
+        return (panel, surface)
+    }
+
+    @Test func thePanelIsAClearBorderlessWindowThatCanTakeTheKeyboard() throws {
+        let (panel, _) = try makeSurface()
+        #expect(!panel.isVisible)
+        #expect(panel.styleMask.contains(.nonactivatingPanel))
+        #expect(!panel.styleMask.contains(.titled))
+        #expect(!panel.isOpaque)
+        #expect(panel.backgroundColor == .clear)
+        #expect(panel.hasShadow)
+        #expect(panel.canBecomeKey)
+        #expect(!panel.canBecomeMain)
+        #expect(panel.level == .floating)
+    }
+
+    @Test func theSheetSitsInsideAClearMarginForItsShadow() throws {
+        let (panel, surface) = try makeSurface()
+        let margin = ScreenshotPanelSurface.margin
+        let size = ScreenshotBrowserView.size
+        #expect(panel.frame.size == CGSize(width: size.width + 2 * margin, height: size.height + 2 * margin))
+        #expect(surface.sheet.frame == CGRect(x: margin, y: margin, width: size.width, height: size.height))
+    }
+
+    @Test func theSheetIsTheSystemsOwnGlassWhereItExists() throws {
+        let (_, surface) = try makeSurface()
+        if #available(macOS 26.0, *) {
+            let glass = try #require(surface.sheet as? NSGlassEffectView)
+            #expect(glass.style == .regular)
+            #expect(glass.cornerRadius == 26)
+            #expect(ScreenshotPanelSurface.cornerRadius == 26)
+            // The panel's contents are what the glass embeds, and they fill it.
+            let content = try #require(glass.contentView)
+            #expect(content is NSHostingView<ScreenshotBrowserView>)
+            #expect(content.frame.size == ScreenshotBrowserView.size)
+        } else {
+            let blur = try #require(surface.sheet as? NSVisualEffectView)
+            #expect(blur.blendingMode == .behindWindow)
+            #expect(blur.maskImage != nil)
+            #expect(blur.subviews.first is NSHostingView<ScreenshotBrowserView>)
+        }
+    }
+
+    @Test func aClickInTheClearMarginCountsAsAClickBesideThePanel() throws {
+        let (_, surface) = try makeSurface()
+        var clicks = 0
+        surface.onClickBeside = { clicks += 1 }
+        let click = try #require(NSEvent.mouseEvent(
+            with: .leftMouseDown, location: CGPoint(x: 4, y: 4), modifierFlags: [], timestamp: 0, windowNumber: 0,
+            context: nil, eventNumber: 0, clickCount: 1, pressure: 1
+        ))
+        surface.mouseDown(with: click)
+        #expect(clicks == 1)
+        // Inside the margin is the sheet; the click there belongs to the panel's contents.
+        let hit = surface.hitTest(CGPoint(x: surface.bounds.midX, y: surface.bounds.midY))
+        #expect(hit !== surface)
+        #expect(surface.hitTest(CGPoint(x: 4, y: 4)) === surface)
+    }
+
+    @Test func theCountUnderTheListReadsNaturally() {
+        #expect(ScreenshotBrowserView.countLabel(1) == "1 screenshot")
+        #expect(ScreenshotBrowserView.countLabel(15) == "15 screenshots")
+        #expect(ScreenshotBrowserView.countLabel(ScreenshotBrowserModel.limit) == "Newest 30")
     }
 }
