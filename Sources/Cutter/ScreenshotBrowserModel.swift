@@ -40,6 +40,8 @@ final class ScreenshotBrowserModel: ObservableObject {
         var copy: (URL) -> Void = { ScreenshotClipboard.copy($0) }
         var reveal: (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
         var close: () -> Void = {}
+        /// A screenshot is being dragged out of the panel.
+        var dragBegan: () -> Void = {}
     }
 
     /// How many screenshots the panel lists.
@@ -123,6 +125,15 @@ final class ScreenshotBrowserModel: ObservableObject {
 
     func reveal(_ screenshot: Screenshot) {
         act(on: screenshot, environment.reveal)
+    }
+
+    /// The screenshot at this index is being dragged out. It becomes the selection, and
+    /// the panel is told, so that it can close when the drag is over.
+    func dragBegan(at index: Int) {
+        if screenshots.indices.contains(index) {
+            selection = index
+        }
+        environment.dragBegan()
     }
 
     private func act(on screenshot: Screenshot?, _ action: (URL) -> Void) {

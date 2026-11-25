@@ -172,7 +172,7 @@ struct ScreenshotBrowserView: View {
                             model.selection = index
                         })
                         .onDrag {
-                            model.selection = index
+                            model.dragBegan(at: index)
                             return NSItemProvider(contentsOf: screenshot.url) ?? NSItemProvider()
                         }
                         .contextMenu {

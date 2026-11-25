@@ -41,13 +41,13 @@ Move to Previous Display and Move to Next Display send the focused window to ano
 | Show it in Finder | ⌘↩ or ⌘R | Right-click > Show in Finder |
 | Use it in another app | | Drag the thumbnail there |
 
-Opening, copying and showing in Finder close the panel, and the app you were in has the keyboard again. A copied screenshot pastes as a picture where pictures go and as a file in Finder.
+The panel has the keyboard while it is open and gives it back when it closes. It closes after opening, copying or showing a screenshot in Finder, after a thumbnail has been dragged out, and whenever your attention goes elsewhere: a click outside it, another app coming forward, or anything else taking the keyboard. A copied screenshot pastes as a picture where pictures go and as a file in Finder.
 
 - **Where it looks.** In the folder macOS saves screenshots to: the one chosen under Options in the Screenshot toolbar (⇧⌘5), or the Desktop when none was chosen.
 - **What counts as a screenshot.** A picture that macOS marked as a screenshot when it saved it, whatever the file is called now, or one whose name starts with "Screenshot" or with your own screenshot name prefix. Screen recordings are not shown. Screenshots moved out of the folder are not found.
 - **How many.** The newest 30.
 - **When it reads the folder.** Each time the panel opens, and at no other time, so the panel is up to date whenever you look.
-- **Permission.** If the folder is the Desktop, Documents or Downloads, macOS asks once, the first time the panel opens, whether Cutter may access files there. Cutter reads the screenshots to show them and changes nothing. Without the permission the panel says so; it can be given later under System Settings > Privacy & Security > Files and Folders. This feature does not need Accessibility access.
+- **Permission.** If the folder is the Desktop, Documents or Downloads, macOS asks once, the first time the panel opens, whether Cutter may access files there. The panel closes while the question is up; open it again after answering. Cutter reads the screenshots to show them and changes nothing. Without the permission the panel says so; it can be given later under System Settings > Privacy & Security > Files and Folders. This feature does not need Accessibility access.
 
 ## Shortcuts and other apps
 

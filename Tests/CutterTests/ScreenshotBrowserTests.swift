@@ -303,24 +303,40 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
 /// The panel is created here but never shown.
 @MainActor
 @Suite struct ScreenshotPanelTests {
-    private func makePanel(used: @escaping (NSEvent) -> Bool) -> KeyPanel {
+    private func makePanel(holdsKeyboard: Bool?, used: @escaping (NSEvent) -> Bool) -> KeyPanel {
         let panel = KeyPanel(contentRect: .zero, styleMask: [.nonactivatingPanel, .titled], backing: .buffered, defer: true)
+        panel.holdsKeyboardOverride = holdsKeyboard
         panel.onKeyDown = used
         return panel
     }
 
     @Test func thePanelCanTakeTheKeyboardWithoutBeingAMainWindow() {
-        let panel = makePanel { _ in false }
+        let panel = makePanel(holdsKeyboard: nil) { _ in false }
         #expect(panel.canBecomeKey)
         #expect(!panel.canBecomeMain)
         #expect(panel.styleMask.contains(.nonactivatingPanel))
     }
 
-    /// ⌘Q pressed over the panel is meant for the app behind it. It must not reach
+    /// A panel that is not on screen must never use a key press or keep it from anyone.
+    @Test func aHiddenPanelNeitherUsesNorStopsKeys() {
+        var seen = 0
+        let panel = makePanel(holdsKeyboard: nil) { _ in
+            seen += 1
+            return true
+        }
+        #expect(!panel.isVisible)
+        #expect(!panel.holdsKeyboard)
+        #expect(!panel.performKeyEquivalent(with: keyDown(12, "q", [.command])))
+        #expect(!panel.performKeyEquivalent(with: keyDown(8, "c", [.command])))
+        panel.sendEvent(keyDown(KeyCode.returnKey, "\r"))
+        #expect(seen == 0)
+    }
+
+    /// ⌘Q pressed over the open panel is meant for the app behind it. It must not reach
     /// Cutter's own menu, where it would quit Cutter.
-    @Test func commandKeysThePanelDoesNotUseGoNoFurther() {
+    @Test func whileOpenCommandKeysThePanelDoesNotUseGoNoFurther() {
         var seen: [UInt16] = []
-        let panel = makePanel { event in
+        let panel = makePanel(holdsKeyboard: true) { event in
             seen.append(event.keyCode)
             return false
         }
@@ -329,9 +345,9 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
         #expect(seen == [12, 43])
     }
 
-    @Test func thePanelsOwnCommandKeysReachIt() {
+    @Test func whileOpenThePanelsOwnCommandKeysReachIt() {
         var commands: [ScreenshotBrowserModel.Command] = []
-        let panel = makePanel { event in
+        let panel = makePanel(holdsKeyboard: true) { event in
             guard let command = ScreenshotBrowserModel.command(for: event) else {
                 return false
             }
@@ -345,18 +361,180 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
 
     @Test func escapeWithNoTakerClosesThePanel() {
         var cancels = 0
-        let panel = makePanel { _ in false }
+        let panel = makePanel(holdsKeyboard: true) { _ in false }
         panel.onCancel = { cancels += 1 }
         panel.cancelOperation(nil)
         #expect(cancels == 1)
     }
+}
 
-    @Test func theControllerReadsNothingUntilAskedToShow() {
+/// The panel holds the keyboard while it is open, so it must let go at the first sign
+/// that the user is elsewhere. These tests run the controller's rules without ever
+/// putting the panel on screen and without listening to this Mac's real clicks.
+@MainActor
+@Suite struct ScreenshotPanelLetsGoTests {
+    private final class Session {
         let controller = ScreenshotPanelController()
-        #expect(!controller.isShown)
+        var reasons: [ScreenshotPanelController.CloseReason] = []
+        var mouseButtonDown = true
+        var answer: [Screenshot] = screenshots(6)
+        /// Folder reads the model has asked for and that have not answered yet.
+        var pendingReads: [() -> Void] = []
+        var holdReads = false
+
+        init() {
+            controller.listensToTheSystem = false
+            controller.onClose = { [unowned self] in reasons.append($0) }
+            controller.isMouseButtonDown = { [unowned self] in mouseButtonDown }
+            // Nothing real is read, opened, copied or revealed.
+            controller.model.environment.location = { (URL(fileURLWithPath: "/samples", isDirectory: true), nil) }
+            controller.model.environment.find = { [unowned self] _, _ in answer }
+            controller.model.environment.inBackground = { [unowned self] work in
+                if holdReads {
+                    pendingReads.append(work)
+                } else {
+                    work()
+                }
+            }
+            controller.model.environment.onMain = { $0() }
+            controller.model.environment.open = { _ in }
+            controller.model.environment.copy = { _ in }
+            controller.model.environment.reveal = { _ in }
+        }
+
+        /// The panel as it is right after opening, with the folder read or still being read.
+        func open(loaded: Bool = true) {
+            holdReads = !loaded
+            controller.model.reload()
+            controller.beginSession()
+        }
+    }
+
+    @Test func nothingIsReadAndNothingIsOpenUntilAskedToShow() {
+        let controller = ScreenshotPanelController()
+        #expect(!controller.isOpen)
         #expect(controller.model.state == .loading)
         #expect(controller.model.screenshots.isEmpty)
         #expect(controller.model.folder == nil)
+    }
+
+    @Test func losingTheKeyboardClosesThePanel() {
+        let session = Session()
+        session.open()
+        session.controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
+        #expect(session.reasons == [.lostKeyboard])
+        #expect(!session.controller.isOpen)
+    }
+
+    /// While the folder is being read, macOS may be asking whether Cutter may read it.
+    /// The panel must not hold on through that: it closes like at any other time.
+    @Test func losingTheKeyboardClosesThePanelEvenWhileItIsLoading() {
+        let session = Session()
+        session.open(loaded: false)
+        #expect(session.controller.model.state == .loading)
+        session.controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
+        #expect(session.reasons == [.lostKeyboard])
+    }
+
+    @Test func aClickElsewhereClosesThePanelEvenWhileItIsLoading() {
+        let session = Session()
+        session.open(loaded: false)
+        session.controller.close(.clickElsewhere)
+        #expect(session.reasons == [.clickElsewhere])
+        #expect(!session.controller.isOpen)
+    }
+
+    @Test func anotherAppComingForwardClosesThePanel() {
+        let session = Session()
+        session.open()
+        // Cutter itself coming forward, for its settings window, is not a reason.
+        session.controller.appCameForward(processIdentifier: ProcessInfo.processInfo.processIdentifier)
+        #expect(session.reasons.isEmpty)
+
+        session.controller.appCameForward(processIdentifier: 1)
+        #expect(session.reasons == [.otherAppCameForward])
+    }
+
+    @Test func aReadThatTakesTooLongClosesThePanel() {
+        let session = Session()
+        session.open(loaded: false)
+        session.controller.loadingPatienceRanOut()
+        #expect(session.reasons == [.slowLoading])
+    }
+
+    @Test func patienceRunningOutDoesNothingOnceTheFolderHasBeenRead() {
+        let session = Session()
+        session.open()
+        #expect(session.controller.model.state == .loaded)
+        session.controller.loadingPatienceRanOut()
+        #expect(session.reasons.isEmpty)
+        #expect(session.controller.isOpen)
+    }
+
+    /// After a drag out there is no click elsewhere, and the user's next move is in the
+    /// app the screenshot went to. The panel must not sit there holding the keyboard.
+    @Test func thePanelClosesWhenADragOutOfItEnds() {
+        let session = Session()
+        session.open()
+        session.mouseButtonDown = true
+        session.controller.model.dragBegan(at: 2)
+        #expect(session.controller.model.selection == 2)
+
+        session.controller.checkWhetherDragEnded()
+        #expect(session.reasons.isEmpty)
+
+        session.mouseButtonDown = false
+        session.controller.checkWhetherDragEnded()
+        #expect(session.reasons == [.dragEnded])
+        #expect(!session.controller.isOpen)
+    }
+
+    @Test func withoutADragTheMouseButtonMeansNothing() {
+        let session = Session()
+        session.open()
+        session.mouseButtonDown = false
+        session.controller.checkWhetherDragEnded()
+        #expect(session.reasons.isEmpty)
+    }
+
+    @Test func escapeAndTheThreeActionsCloseThePanel() {
+        for command in [ScreenshotBrowserModel.Command.close, .open, .copy, .reveal] {
+            let session = Session()
+            session.open()
+            session.controller.model.perform(command)
+            #expect(session.reasons == [.command])
+            #expect(!session.controller.isOpen)
+        }
+    }
+
+    @Test func theShortcutClosesAnOpenPanel() {
+        let session = Session()
+        session.open()
+        session.controller.toggle()
+        #expect(session.reasons == [.toggledOff])
+    }
+
+    @Test func closingTwiceClosesOnce() {
+        let session = Session()
+        session.open()
+        session.controller.close(.clickElsewhere)
+        session.controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
+        session.controller.close(.command)
+        session.controller.checkWhetherDragEnded()
+        session.controller.loadingPatienceRanOut()
+        #expect(session.reasons == [.clickElsewhere])
+    }
+
+    /// The folder's answer arriving after the panel has closed must not bring it back.
+    @Test func aLateAnswerDoesNotReopenAClosedPanel() {
+        let session = Session()
+        session.open(loaded: false)
+        session.controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
+
+        session.pendingReads.forEach { $0() }
+        #expect(session.controller.model.state == .loaded)
+        #expect(!session.controller.isOpen)
+        #expect(session.reasons == [.lostKeyboard])
     }
 }
 
