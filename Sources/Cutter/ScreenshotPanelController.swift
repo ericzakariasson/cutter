@@ -127,8 +127,10 @@ final class ScreenshotPanelController: NSObject, NSWindowDelegate {
             ))
         }
         panel.makeKeyAndOrderFront(nil)
-        // The shadow follows the sheet's shape, which is only known once it is on screen.
-        panel.invalidateShadow()
+        if panel.hasShadow {
+            // The shadow follows the sheet's shape, which is only known once it is on screen.
+            panel.invalidateShadow()
+        }
         // The log says when the panel had the keyboard and why it let go, and nothing
         // about the screenshots.
         NSLog("Cutter: screenshots panel opened%@", panel.isKeyWindow ? "" : " without the keyboard; the mouse still works in it")
@@ -274,7 +276,7 @@ final class ScreenshotPanelController: NSObject, NSWindowDelegate {
         )
         panel.isOpaque = false
         panel.backgroundColor = .clear
-        panel.hasShadow = true
+        panel.hasShadow = !ScreenshotPanelSurface.drawsItsOwnShadow
         panel.isFloatingPanel = true
         panel.level = .floating
         panel.hidesOnDeactivate = false

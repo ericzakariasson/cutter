@@ -6,6 +6,11 @@ import AppKit
 /// The panel's window is borderless and transparent, so this view alone gives the panel
 /// its shape. It keeps a clear margin around the sheet: room for the shadow, which a
 /// sheet filling the window to its edges would have cut off.
+///
+/// The glass draws its own edge and shadow. The window must not add a shadow of its own
+/// on top: macOS shapes a window's shadow, and the thin outline that comes with it, after
+/// everything the window shows, the glass's soft shadow included, which puts a second,
+/// misplaced outline around the panel.
 final class ScreenshotPanelSurface: NSView {
     /// The clear room around the sheet, on every side.
     static let margin: CGFloat = 36
@@ -16,6 +21,15 @@ final class ScreenshotPanelSurface: NSView {
             return 26
         }
         return 16
+    }
+
+    /// Whether the sheet brings its own edge and shadow, as the system's glass does. The
+    /// blurred material on earlier systems has neither and needs the window's shadow.
+    static var drawsItsOwnShadow: Bool {
+        if #available(macOS 26.0, *) {
+            return true
+        }
+        return false
     }
 
     /// Called for a click in the clear margin, which is a click beside the panel.

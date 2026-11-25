@@ -652,10 +652,24 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
         #expect(!panel.styleMask.contains(.titled))
         #expect(!panel.isOpaque)
         #expect(panel.backgroundColor == .clear)
-        #expect(panel.hasShadow)
         #expect(panel.canBecomeKey)
         #expect(!panel.canBecomeMain)
         #expect(panel.level == .floating)
+    }
+
+    /// The system's glass draws its own edge and shadow. A window shadow on top of it
+    /// put a second outline around the panel, so the window casts one only where the
+    /// sheet is the plain blurred material.
+    @Test func theWindowAddsNoShadowOfItsOwnToTheGlass() throws {
+        let (panel, surface) = try makeSurface()
+        if #available(macOS 26.0, *) {
+            #expect(surface.sheet is NSGlassEffectView)
+            #expect(ScreenshotPanelSurface.drawsItsOwnShadow)
+            #expect(!panel.hasShadow)
+        } else {
+            #expect(!ScreenshotPanelSurface.drawsItsOwnShadow)
+            #expect(panel.hasShadow)
+        }
     }
 
     @Test func theSheetSitsInsideAClearMarginForItsShadow() throws {
