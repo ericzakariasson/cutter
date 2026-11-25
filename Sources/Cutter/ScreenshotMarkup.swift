@@ -19,11 +19,16 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
 
     /// Called with the file after an edited picture has replaced it.
     var onSaved: ((URL) -> Void)?
+    /// Called with the file once the window is gone after Done, Cancel or Close, for
+    /// going back to where the edit began. Not called when the picture went to Preview.
+    var onClosed: ((URL) -> Void)?
 
     private var window: NSWindow?
     private var imageView: NSImageView?
     private var file: URL?
     private var service: NSSharingService?
+    /// Whether closing the window leads back to where the edit began.
+    private var goesBackOnClose = true
 
     static var isAvailable: Bool {
         NSSharingService(named: serviceName) != nil
@@ -31,16 +36,12 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
 
     /// Shows the picture and starts Markup on it.
     func edit(_ file: URL) {
-        closeWindow()
         guard let image = NSImage(contentsOf: file) else {
             NSLog("Cutter: markup: the picture could not be read; opening it in its app instead")
             NSWorkspace.shared.open(file)
             return
         }
-        self.file = file
-
-        let window = makeWindow(for: image)
-        self.window = window
+        let window = begin(with: file, showing: image)
         // Markup needs the keyboard and a frontmost window, so here Cutter does come forward.
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
@@ -52,6 +53,28 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
         DispatchQueue.main.async { [weak self] in
             self?.startMarkup()
         }
+    }
+
+    /// Builds the window for a picture and remembers what is being edited, without
+    /// showing anything.
+    func begin(with file: URL, showing image: NSImage) -> NSWindow {
+        // A window still up from an earlier edit gives way to this one.
+        closeWindow(goingBack: false)
+        self.file = file
+        goesBackOnClose = true
+        let window = makeWindow(for: image)
+        self.window = window
+        return window
+    }
+
+    /// Hands the picture to Preview. The window goes, and nothing comes back in its place.
+    func leaveForPreview(open: (URL) -> Void = { NSWorkspace.shared.open($0) }) {
+        guard let file else {
+            return
+        }
+        NSLog("Cutter: markup: handed to Preview")
+        open(file)
+        closeWindow(goingBack: false)
     }
 
     @objc private func startMarkup() {
@@ -77,11 +100,7 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
     }
 
     @objc private func openInPreview() {
-        guard let file else {
-            return
-        }
-        NSWorkspace.shared.open(file)
-        closeWindow()
+        leaveForPreview()
     }
 
     @objc private func closeFromButton() {
@@ -157,22 +176,37 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
     // MARK: - The window
 
     func windowWillClose(_ notification: Notification) {
+        let ended = goesBackOnClose ? file : nil
         window = nil
         imageView = nil
         file = nil
         service = nil
-        // Cutter came forward for the editor. With nothing left to show, it steps back
-        // for the app that was in front before.
-        DispatchQueue.main.async {
-            let hasAWindow = NSApp.windows.contains { $0.isVisible && $0.canBecomeKey }
-            if NSApp.isActive, !hasAWindow {
-                NSApp.hide(nil)
-            }
+        goesBackOnClose = true
+        // On the next turn of the run loop, when the window is really gone.
+        DispatchQueue.main.async { [weak self] in
+            self?.windowClosed(goingBackWith: ended)
         }
     }
 
-    private func closeWindow() {
-        window?.close()
+    /// What follows the window: back to where the edit began, which is the screenshots
+    /// panel. If nothing of Cutter's is left on screen after that, Cutter, which came
+    /// forward for the editor, steps back for the app that was in front before.
+    func windowClosed(goingBackWith file: URL?) {
+        if let file {
+            onClosed?(file)
+        }
+        let hasAWindow = NSApp.windows.contains { $0.isVisible && $0.canBecomeKey }
+        if NSApp.isActive, !hasAWindow {
+            NSApp.hide(nil)
+        }
+    }
+
+    private func closeWindow(goingBack: Bool = true) {
+        guard let window else {
+            return
+        }
+        goesBackOnClose = goingBack
+        window.close()
     }
 
     /// The picture's own rectangle inside the image view, which fits it proportionally.

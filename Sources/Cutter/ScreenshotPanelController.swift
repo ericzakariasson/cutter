@@ -80,6 +80,8 @@ final class ScreenshotPanelController: NSObject, NSWindowDelegate {
     /// Tests turn this off: a real click or app switch on the Mac running them must not
     /// decide their outcome.
     var listensToTheSystem = true
+    /// Tests turn this off too: they follow what the panel does without one on screen.
+    var putsThePanelOnScreen = true
 
     private(set) var isOpen = false
     private let thumbnails = ThumbnailStore()
@@ -106,6 +108,9 @@ final class ScreenshotPanelController: NSObject, NSWindowDelegate {
             self?.thumbnails.forgetEverything()
             self?.model.picturesChanged()
         }
+        markup.onClosed = { [weak self] file in
+            self?.markupEnded(with: file)
+        }
     }
 
     /// The shortcut and the menu item both come here: show the panel, or close it when
@@ -118,13 +123,30 @@ final class ScreenshotPanelController: NSObject, NSWindowDelegate {
         }
     }
 
-    func show() {
-        let panel = self.panel ?? makePanel()
-        self.panel = panel
+    /// Marking up a screenshot ended, with Done, with Cancel or by closing its window.
+    /// The panel comes back with that screenshot selected, so that an edit ends where it
+    /// began.
+    ///
+    /// Cutter is the active app at this point: it came forward for the editor. The panel
+    /// closes by the same rules as ever, and on closing sends Cutter to the background
+    /// again, which gives the keyboard to the app that was in front before.
+    func markupEnded(with file: URL) {
+        NSLog("Cutter: markup: back to the screenshots panel")
+        show(selecting: file)
+    }
 
+    /// Shows the panel with the newest screenshot selected, or the given one.
+    func show(selecting file: URL? = nil) {
         // The screenshots are read here and nowhere else, so that the first use of the
         // panel is the moment macOS asks whether Cutter may read the folder.
-        model.reload()
+        model.reload(selecting: file)
+
+        guard putsThePanelOnScreen else {
+            beginSession()
+            return
+        }
+        let panel = self.panel ?? makePanel()
+        self.panel = panel
 
         if let screen = NSScreen.main ?? NSScreen.screens.first {
             let visible = screen.visibleFrame

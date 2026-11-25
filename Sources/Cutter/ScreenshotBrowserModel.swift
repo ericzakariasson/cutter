@@ -75,10 +75,10 @@ final class ScreenshotBrowserModel: ObservableObject {
         selection.flatMap { screenshots.indices.contains($0) ? screenshots[$0] : nil }
     }
 
-    /// Reads the folder again. The newest screenshot is selected when the list arrives.
-    /// A list from an earlier look stays up meanwhile, so that reopening the panel does
-    /// not flash empty.
-    func reload() {
+    /// Reads the folder again. When the list arrives, the given file is selected if it
+    /// is in it, and the newest screenshot otherwise. A list from an earlier look stays
+    /// up meanwhile, so that reopening the panel does not flash empty.
+    func reload(selecting file: URL? = nil) {
         generation += 1
         let request = generation
         if screenshots.isEmpty {
@@ -98,7 +98,10 @@ final class ScreenshotBrowserModel: ObservableObject {
                 switch result {
                 case .success(let screenshots):
                     self.screenshots = screenshots
-                    self.selection = screenshots.isEmpty ? nil : 0
+                    let wanted = file.flatMap { file in
+                        screenshots.firstIndex { $0.url.standardizedFileURL.path == file.standardizedFileURL.path }
+                    }
+                    self.selection = screenshots.isEmpty ? nil : (wanted ?? 0)
                     self.state = screenshots.isEmpty ? .empty : .loaded
                 case .failure(let error):
                     self.screenshots = []

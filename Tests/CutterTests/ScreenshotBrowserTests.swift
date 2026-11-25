@@ -268,6 +268,19 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
         #expect(recorder.closes == 1)
     }
 
+    /// Coming back from Markup, the edited screenshot is the selected one.
+    @Test func reloadingCanSelectAGivenFile() {
+        let model = makeModel(Recorder()) { screenshots(6) }
+        model.reload(selecting: screenshots(6)[4].url)
+        #expect(model.selection == 4)
+
+        // A file that is no longer listed: the newest, as on any other opening.
+        model.reload(selecting: URL(fileURLWithPath: "/samples/Gone.png"))
+        #expect(model.selection == 0)
+        model.reload()
+        #expect(model.selection == 0)
+    }
+
     @Test func aClickedScreenshotIsTheOneActedOn() {
         let recorder = Recorder()
         let model = makeModel(recorder) { screenshots(5) }
@@ -459,6 +472,52 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
             controller.model.reload()
             controller.beginSession()
         }
+    }
+
+    /// After Done, Cancel or Close in Markup the panel is back, on the edited screenshot.
+    @Test func whenMarkupEndsThePanelComesBackOnTheEditedScreenshot() {
+        let session = Session()
+        session.controller.putsThePanelOnScreen = false
+        session.open()
+        session.controller.close(.lostKeyboard)
+        #expect(!session.controller.isOpen)
+
+        session.controller.markupEnded(with: session.answer[3].url)
+        #expect(session.controller.isOpen)
+        #expect(session.controller.model.selection == 3)
+        #expect(session.controller.model.state == .loaded)
+    }
+
+    /// Back from Markup, the panel lets go of the keyboard by the same rules as before.
+    @Test func thePanelBackFromMarkupClosesLikeAnyOther() {
+        for reason in [ScreenshotPanelController.CloseReason.lostKeyboard, .clickElsewhere, .cutterDeactivated, .command] {
+            let session = Session()
+            session.controller.putsThePanelOnScreen = false
+            session.controller.markupEnded(with: session.answer[2].url)
+            #expect(session.controller.isOpen)
+
+            switch reason {
+            case .lostKeyboard:
+                session.controller.windowDidResignKey(Notification(name: NSWindow.didResignKeyNotification))
+            case .command:
+                session.controller.model.perform(.close)
+            default:
+                session.controller.close(reason)
+            }
+            #expect(!session.controller.isOpen)
+            #expect(session.reasons == [reason])
+        }
+    }
+
+    @Test func anotherAppComingForwardClosesThePanelBackFromMarkup() {
+        let session = Session()
+        session.controller.putsThePanelOnScreen = false
+        session.controller.markupEnded(with: session.answer[1].url)
+        // Cutter itself is in front after Markup; that is no reason to close.
+        session.controller.appCameForward(processIdentifier: ProcessInfo.processInfo.processIdentifier)
+        #expect(session.controller.isOpen)
+        session.controller.appCameForward(processIdentifier: 1)
+        #expect(session.reasons == [.otherAppCameForward])
     }
 
     @Test func nothingIsReadAndNothingIsOpenUntilAskedToShow() {
@@ -938,5 +997,143 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
 
     @Test func theSystemsMarkupEditorIsPresentOnThisMac() {
         #expect(ScreenshotMarkupController.isAvailable)
+    }
+}
+
+/// Where an edit ends. The Markup editor is never started and no window is shown: the
+/// window is built and closed off-screen.
+@MainActor
+@Suite struct ScreenshotMarkupEndingTests {
+    private let file = URL(fileURLWithPath: "/samples/Sample 1.png")
+    private let picture = NSImage(size: NSSize(width: 300, height: 200))
+
+    /// One turn of the main queue, which is when a closed window is followed up.
+    private func nextTurn() async {
+        await withCheckedContinuation { continuation in
+            DispatchQueue.main.async { continuation.resume() }
+        }
+    }
+
+    private func controller(_ ended: @escaping (URL) -> Void) -> ScreenshotMarkupController {
+        let controller = ScreenshotMarkupController()
+        controller.onClosed = ended
+        return controller
+    }
+
+    /// Done and Cancel close the window the same way its close button does.
+    @Test func closingTheWindowLeadsBackWithTheFile() async {
+        var ended: [URL] = []
+        let controller = controller { ended.append($0) }
+        let window = controller.begin(with: file, showing: picture)
+        #expect(ended.isEmpty)
+
+        window.close()
+        await nextTurn()
+        #expect(ended == [file])
+
+        // Closed is closed: nothing more follows.
+        window.close()
+        await nextTurn()
+        #expect(ended == [file])
+    }
+
+    @Test func leavingForPreviewDoesNotLeadBack() async {
+        var ended: [URL] = []
+        var opened: [URL] = []
+        let controller = controller { ended.append($0) }
+        _ = controller.begin(with: file, showing: picture)
+
+        controller.leaveForPreview { opened.append($0) }
+        await nextTurn()
+        #expect(opened == [file])
+        #expect(ended.isEmpty)
+    }
+
+    /// A window still up from an earlier edit gives way without bringing the panel back
+    /// over the new one.
+    @Test func aNewEditReplacesTheOldWindowWithoutLeadingBack() async {
+        var ended: [URL] = []
+        let controller = controller { ended.append($0) }
+        let other = URL(fileURLWithPath: "/samples/Sample 2.png")
+        _ = controller.begin(with: file, showing: picture)
+        let second = controller.begin(with: other, showing: picture)
+        await nextTurn()
+        #expect(ended.isEmpty)
+
+        second.close()
+        await nextTurn()
+        #expect(ended == [other])
+    }
+
+    @Test func afterTheWindowTheFileIsHandedOnOnlyWhenThereIsOne() {
+        var ended: [URL] = []
+        let controller = controller { ended.append($0) }
+        controller.windowClosed(goingBackWith: nil)
+        #expect(ended.isEmpty)
+        controller.windowClosed(goingBackWith: file)
+        #expect(ended == [file])
+    }
+}
+
+/// The panel's contents drawn off-screen, with a picture the test writes itself.
+@MainActor
+@Suite struct ScreenshotThumbnailRefreshTests {
+    private func picture(width: Int, height: Int) throws -> Data {
+        let bitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ))
+        return try #require(bitmap.representation(using: .png, properties: [:]))
+    }
+
+    /// Waits until the thumbnail is there, letting the view do its work meanwhile.
+    private func thumbnail(of screenshot: Screenshot, in store: ThumbnailStore, view: NSView) async throws -> NSImage? {
+        for _ in 0..<100 {
+            view.layoutSubtreeIfNeeded()
+            view.displayIfNeeded()
+            if let image = store.cached(screenshot) {
+                return image
+            }
+            try await Task.sleep(nanoseconds: 30_000_000)
+        }
+        return nil
+    }
+
+    @Test func anEditedScreenshotGetsANewThumbnailWithoutThePanelBeingRebuilt() async throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("CutterTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("Sample.png")
+        try picture(width: 400, height: 300).write(to: file)
+        try ScreenshotFinder.markAsScreenCapture(file)
+
+        var environment = ScreenshotBrowserModel.Environment()
+        environment.location = { (folder, nil) }
+        environment.inBackground = { $0() }
+        environment.onMain = { $0() }
+        let model = ScreenshotBrowserModel(environment: environment)
+        let thumbnails = ThumbnailStore()
+        let view = NSHostingView(rootView: ScreenshotBrowserView(model: model, thumbnails: thumbnails, opaqueBackground: true))
+        let window = NSWindow(
+            contentRect: NSRect(origin: .zero, size: ScreenshotBrowserView.size),
+            styleMask: [.borderless], backing: .buffered, defer: false
+        )
+        window.contentView = view
+
+        model.reload()
+        let screenshot = try #require(model.screenshots.first)
+        let before = try #require(try await thumbnail(of: screenshot, in: thumbnails, view: view))
+        #expect(abs(before.size.width / before.size.height - 4.0 / 3.0) < 0.02)
+
+        // Cropped in Markup and saved over the file, as the panel's controller does it.
+        try ScreenshotFile.replace(file, with: EditedPicture(data: try picture(width: 400, height: 100), typeIdentifier: "public.png"))
+        thumbnails.forgetEverything()
+        model.picturesChanged()
+        model.reload(selecting: file)
+        #expect(model.screenshots == [screenshot])
+        #expect(model.selection == 0)
+
+        let after = try #require(try await thumbnail(of: screenshot, in: thumbnails, view: view))
+        #expect(abs(after.size.width / after.size.height - 4.0) < 0.05)
     }
 }
