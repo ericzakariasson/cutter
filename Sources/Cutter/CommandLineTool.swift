@@ -27,6 +27,8 @@ enum CommandLineTool {
             return snapshotSettings(to: arguments.dropFirst().first)
         case "--snapshot-screenshots":
             return ScreenshotPanelSnapshot.run(to: arguments.dropFirst().first)
+        case "--snapshot-markup":
+            return snapshotMarkupWindow(to: arguments.dropFirst().first)
         #endif
         default:
             return nil
@@ -118,6 +120,30 @@ enum CommandLineTool {
         }
 
         func unregisterAll() {}
+    }
+
+    /// Draws the window a screenshot is shown in for Markup, with a made-up picture and
+    /// without showing it. The editor itself is the system's and is not started.
+    private static func snapshotMarkupWindow(to path: String?) -> Int32 {
+        guard let path else {
+            print("usage: Cutter --snapshot-markup <file.png>")
+            return 2
+        }
+        _ = NSApplication.shared
+        let picture = NSImage(size: NSSize(width: 900, height: 560), flipped: false) { bounds in
+            NSGradient(starting: .systemTeal, ending: .systemIndigo)?.draw(in: bounds, angle: -60)
+            NSColor(white: 0.98, alpha: 1).setFill()
+            NSBezierPath(roundedRect: bounds.insetBy(dx: 150, dy: 110), xRadius: 12, yRadius: 12).fill()
+            return true
+        }
+        let window = ScreenshotMarkupController().makeWindow(for: picture)
+        do {
+            try snapshot(window, to: path)
+            return 0
+        } catch {
+            print("Failed: \(error.localizedDescription)")
+            return 1
+        }
     }
 
     private static func snapshot(_ window: NSWindow, to path: String) throws {

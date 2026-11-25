@@ -190,15 +190,19 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
         )
     }
 
-    private func makeWindow(for image: NSImage) -> NSWindow {
+    /// Builds the window without showing it.
+    func makeWindow(for image: NSImage) -> NSWindow {
         let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
         let pictureSize = Self.windowPictureSize(for: image.size, in: visible.size)
 
         let imageView = NSImageView(image: image)
         imageView.imageScaling = .scaleProportionallyDown
         imageView.translatesAutoresizingMaskIntoConstraints = false
-        imageView.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
-        imageView.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
+        // The picture takes whatever room the window has; the buttons keep their size.
+        for axis in [NSLayoutConstraint.Orientation.horizontal, .vertical] {
+            imageView.setContentCompressionResistancePriority(NSLayoutConstraint.Priority(1), for: axis)
+            imageView.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: axis)
+        }
         self.imageView = imageView
 
         let markup = NSButton(title: "Markup", target: self, action: #selector(startMarkup))
@@ -206,8 +210,12 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
         // No key of its own: Return and Escape belong to the editor while it is up, and
         // must not close the window under it.
         let close = NSButton(title: "Close", target: self, action: #selector(closeFromButton))
-        let buttons = NSStackView(views: [markup, preview, NSView(), close])
+        let gap = NSView()
+        gap.setContentHuggingPriority(NSLayoutConstraint.Priority(1), for: .horizontal)
+        let buttons = NSStackView(views: [markup, preview, gap, close])
         buttons.orientation = .horizontal
+        buttons.distribution = .fill
+        buttons.setContentHuggingPriority(.required, for: .vertical)
         buttons.translatesAutoresizingMaskIntoConstraints = false
 
         let content = NSView()
