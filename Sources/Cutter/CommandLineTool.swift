@@ -25,6 +25,8 @@ enum CommandLineTool {
         #if DEBUG
         case "--snapshot-settings":
             return snapshotSettings(to: arguments.dropFirst().first)
+        case "--snapshot-screenshots":
+            return ScreenshotPanelSnapshot.run(to: arguments.dropFirst().first)
         #endif
         default:
             return nil

@@ -28,6 +28,12 @@
 	<string>13.0</string>
 	<key>LSUIElement</key>
 	<true/>
+	<key>NSDesktopFolderUsageDescription</key>
+	<string>Cutter shows your recent screenshots, which macOS saves to the Desktop.</string>
+	<key>NSDocumentsFolderUsageDescription</key>
+	<string>Cutter shows your recent screenshots, which macOS is set to save in Documents.</string>
+	<key>NSDownloadsFolderUsageDescription</key>
+	<string>Cutter shows your recent screenshots, which macOS is set to save in Downloads.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSPrincipalClass</key>

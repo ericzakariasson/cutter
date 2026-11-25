@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var model: AppModel?
     private var settings: SettingsWindowController?
     private var statusMenu: StatusMenuController?
+    private let screenshots = ScreenshotPanelController()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if isAnotherInstanceRunning() {
@@ -29,6 +30,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let settings = SettingsWindowController(model: model)
         model.showSettings = { [weak settings] in
             settings?.show(activating: true)
+        }
+        model.toggleRecentScreenshots = { [screenshots] in
+            screenshots.toggle()
         }
         let statusMenu = StatusMenuController(model: model) { [weak settings] in
             settings?.show(activating: true)

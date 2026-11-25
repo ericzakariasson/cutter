@@ -46,6 +46,7 @@ public struct KeyCombo: Codable, Hashable, Sendable {
 
 /// Virtual key codes Cutter refers to by name.
 public enum KeyCode {
+    public static let s: UInt16 = 1
     public static let returnKey: UInt16 = 36
     public static let tab: UInt16 = 48
     public static let space: UInt16 = 49

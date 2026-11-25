@@ -15,17 +15,39 @@ private let commandShiftRight = KeyCombo(keyCode: KeyCode.rightArrow, modifiers:
 private let commandOptionF = KeyCombo(keyCode: 3, modifiers: [.command, .option])
 
 @Suite struct ShortcutConfigurationTests {
-    @Test func defaultsAreControlOptionReturnAndArrows() {
+    @Test func defaultsAreControlOptionReturnArrowsAndS() {
         let configuration = ShortcutConfiguration()
         #expect(configuration.shortcut(for: .maximize) == controlOptionReturn)
         #expect(configuration.shortcut(for: .leftHalf) == controlOptionLeft)
         #expect(configuration.shortcut(for: .rightHalf) == controlOptionRight)
         #expect(configuration.shortcut(for: .previousDisplay) == controlOptionUp)
         #expect(configuration.shortcut(for: .nextDisplay) == controlOptionDown)
+        #expect(configuration.shortcut(for: .recentScreenshots) == KeyCombo(keyCode: KeyCode.s, modifiers: controlOption))
 
         let assigned = configuration.assignments.map(\.action)
-        #expect(assigned == [.maximize, .leftHalf, .rightHalf, .previousDisplay, .nextDisplay])
+        #expect(assigned == [.maximize, .leftHalf, .rightHalf, .previousDisplay, .nextDisplay, .recentScreenshots])
         #expect(configuration.isDefault)
+    }
+
+    @Test func everyDefaultUsesControlOption() {
+        for (_, combo) in ShortcutConfiguration.defaultShortcuts {
+            #expect(combo.modifiers == controlOption)
+        }
+    }
+
+    /// The screenshots shortcut arrived as a default in a later version. Someone who had
+    /// already put ⌃⌥S on another action keeps it there.
+    @Test func aSavedControlOptionSKeepsItsActionWhenTheScreenshotsDefaultArrives() throws {
+        let json = #"{"topLeft":{"combo":{"keyCode":1,"modifiers":3}}}"#
+        let decoded = try JSONDecoder().decode(ShortcutConfiguration.self, from: Data(json.utf8))
+        #expect(decoded.shortcut(for: .topLeft) == KeyCombo(keyCode: KeyCode.s, modifiers: controlOption))
+        #expect(decoded.shortcut(for: .recentScreenshots) == nil)
+    }
+
+    @Test func onlyShowingTheScreenshotsNeedsNoAccessibilityAccess() {
+        for action in WindowAction.allCases {
+            #expect(action.needsAccessibility == (action != .recentScreenshots))
+        }
     }
 
     @Test func topAndBottomHalfCornersAndFullScreenHaveNoDefault() {
@@ -105,7 +127,7 @@ private let commandOptionF = KeyCombo(keyCode: 3, modifiers: [.command, .option]
         let json = #"{"someFutureAction":{"combo":{"keyCode":0,"modifiers":8}},"toggleFullScreen":{"combo":{"keyCode":3,"modifiers":10}}}"#
         let decoded = try JSONDecoder().decode(ShortcutConfiguration.self, from: Data(json.utf8))
         #expect(decoded.shortcut(for: .toggleFullScreen) == commandOptionF)
-        #expect(decoded.assignments.count == 6)
+        #expect(decoded.assignments.count == ShortcutConfiguration.defaultShortcuts.count + 1)
     }
 
     /// Only the user's own changes are stored, so settings saved before the defaults

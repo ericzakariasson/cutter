@@ -17,6 +17,7 @@ extension WindowAction {
         case .previousDisplay: return "arrow.up.backward.square"
         case .nextDisplay: return "arrow.down.forward.square"
         case .toggleFullScreen: return "arrow.up.left.and.arrow.down.right"
+        case .recentScreenshots: return "photo.on.rectangle.angled"
         }
     }
 }

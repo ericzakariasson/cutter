@@ -72,13 +72,14 @@ final class StatusMenuController: NSObject, NSMenuDelegate {
         }
 
         for action in WindowAction.allCases {
-            if action == .previousDisplay || action == .toggleFullScreen {
+            if action == .previousDisplay || action == .toggleFullScreen || action == .recentScreenshots {
                 menu.addItem(.separator())
             }
             let item = makeItem(action.title, action: #selector(performAction(_:)))
             item.representedObject = action.rawValue
             item.image = NSImage(systemSymbolName: action.symbolName, accessibilityDescription: nil)
-            item.isEnabled = isTrusted && (!action.movesBetweenDisplays || screenCount() > 1)
+            item.isEnabled = (isTrusted || !action.needsAccessibility)
+                && (!action.movesBetweenDisplays || screenCount() > 1)
             if let combo = model.configuration.shortcut(for: action),
                let keyEquivalent = KeyComboFormatter.menuKeyEquivalent(for: combo.keyCode) {
                 item.keyEquivalent = keyEquivalent

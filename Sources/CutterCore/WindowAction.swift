@@ -1,6 +1,7 @@
 import Foundation
 
-/// Everything Cutter can do to the focused window.
+/// Everything Cutter does on a shortcut: the placements and moves of the focused window,
+/// and showing the recent screenshots.
 ///
 /// To add a placement: add a case, give it a `title`, and return its `UnitRect` from `behavior`.
 /// The settings window, the menu and the shortcut storage pick it up from `allCases`, in
@@ -18,6 +19,7 @@ public enum WindowAction: String, CaseIterable, Codable, Sendable {
     case previousDisplay
     case nextDisplay
     case toggleFullScreen
+    case recentScreenshots
 
     public enum Behavior: Equatable, Sendable {
         /// Move and resize the window to this part of its screen's visible area.
@@ -26,6 +28,8 @@ public enum WindowAction: String, CaseIterable, Codable, Sendable {
         case moveToDisplay(DisplayDirection)
         /// Enter or leave native macOS full screen.
         case toggleFullScreen
+        /// Show the panel with the most recent screenshots.
+        case showRecentScreenshots
     }
 
     public var title: String {
@@ -42,6 +46,7 @@ public enum WindowAction: String, CaseIterable, Codable, Sendable {
         case .previousDisplay: return "Move to Previous Display"
         case .nextDisplay: return "Move to Next Display"
         case .toggleFullScreen: return "Toggle Full Screen"
+        case .recentScreenshots: return "Show Recent Screenshots"
         }
     }
 
@@ -59,7 +64,14 @@ public enum WindowAction: String, CaseIterable, Codable, Sendable {
         case .previousDisplay: return .moveToDisplay(.previous)
         case .nextDisplay: return .moveToDisplay(.next)
         case .toggleFullScreen: return .toggleFullScreen
+        case .recentScreenshots: return .showRecentScreenshots
         }
+    }
+
+    /// Whether the action controls another app's window, which takes Accessibility access.
+    /// Showing the screenshots does not.
+    public var needsAccessibility: Bool {
+        behavior != .showRecentScreenshots
     }
 
     /// Whether the action needs a second display to do anything.

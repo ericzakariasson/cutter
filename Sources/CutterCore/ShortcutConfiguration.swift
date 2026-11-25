@@ -20,6 +20,7 @@ public struct ShortcutConfiguration: Codable, Equatable, Sendable {
         .rightHalf: KeyCombo(keyCode: KeyCode.rightArrow, modifiers: [.control, .option]),
         .previousDisplay: KeyCombo(keyCode: KeyCode.upArrow, modifiers: [.control, .option]),
         .nextDisplay: KeyCombo(keyCode: KeyCode.downArrow, modifiers: [.control, .option]),
+        .recentScreenshots: KeyCombo(keyCode: KeyCode.s, modifiers: [.control, .option]),
     ]
 
     public init() {

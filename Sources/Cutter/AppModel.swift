@@ -25,6 +25,8 @@ final class AppModel: ObservableObject {
 
     /// Set by the app delegate; called when a shortcut needs the user's attention.
     var showSettings: (() -> Void)?
+    /// Set by the app delegate; shows or hides the recent-screenshots panel.
+    var toggleRecentScreenshots: (() -> Void)?
 
     private let store: ShortcutStore
     private let hotKeys: HotKeyRegistering
@@ -69,6 +71,10 @@ final class AppModel: ObservableObject {
     }
 
     func perform(_ action: WindowAction) {
+        if action.behavior == .showRecentScreenshots {
+            toggleRecentScreenshots?()
+            return
+        }
         do {
             try act(action)
         } catch WindowManagerError.accessibilityNotGranted {
@@ -119,21 +125,15 @@ final class AppModel: ObservableObject {
     }
 
     /// Shortcuts are live only while Cutter can act on them: without Accessibility access
-    /// a registered shortcut would swallow the key press and do nothing. They also pause
-    /// while a shortcut is being recorded, so the recorder sees the keys, and while the
-    /// menu is open.
+    /// a registered window shortcut would swallow the key press and do nothing. Showing
+    /// the screenshots needs no such access and stays live. All shortcuts pause while one
+    /// is being recorded, so the recorder sees the keys, and while the menu is open.
     private func syncHotKeys(isTrusted: Bool, isRecording: Bool) {
-        guard isTrusted else {
-            hotKeys.unregisterAll()
-            failedRegistrations = [:]
-            log("shortcuts off: Accessibility access not granted")
-            return
-        }
         guard !isRecording else {
             hotKeys.unregisterAll()
             return
         }
-        let assignments = configuration.assignments
+        let assignments = configuration.assignments.filter { isTrusted || !$0.action.needsAccessibility }
         guard !isMenuOpen else {
             _ = hotKeys.register(assignments.filter { !menuAnswersTo($0.combo) })
             return
@@ -145,7 +145,8 @@ final class AppModel: ObservableObject {
         let registered = assignments
             .filter { failures[$0.action] == nil }
             .map { "\($0.action.title) \(KeyComboFormatter.string(for: $0.combo))" }
-        var summary = "registered \(registered.count) shortcuts: \(registered.joined(separator: ", "))"
+        var summary = isTrusted ? "" : "window shortcuts off: Accessibility access not granted; "
+        summary += "registered \(registered.count) shortcuts: \(registered.joined(separator: ", "))"
         for (action, status) in failures.sorted(by: { $0.key.rawValue < $1.key.rawValue }) {
             summary += "; macOS rejected the shortcut for \(action.title) (status \(status))"
         }

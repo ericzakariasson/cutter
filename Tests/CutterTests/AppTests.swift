@@ -74,6 +74,10 @@ private let keyT: UInt16 = 17
 private let usLayout: [UInt16: String] = [keyA: "a", keyC: "c", keyQ: "q", keyT: "t"]
 
 private let controlOption: KeyCombo.Modifiers = [.control, .option]
+private let defaultCount = ShortcutConfiguration.defaultShortcuts.count
+private let screenshotsShortcutOnly: [WindowAction: KeyCombo] = [
+    .recentScreenshots: KeyCombo(keyCode: KeyCode.s, modifiers: controlOption),
+]
 private let controlOptionReturn = KeyCombo(keyCode: KeyCode.returnKey, modifiers: controlOption)
 
 @MainActor
@@ -262,11 +266,13 @@ private let controlOptionReturn = KeyCombo(keyCode: KeyCode.returnKey, modifiers
 
 @MainActor
 @Suite struct GlobalShortcutLifecycleTests {
-    @Test func shortcutsAreRegisteredOnlyWhileAccessibilityAccessIsGranted() {
+    /// Without Accessibility access a window shortcut would swallow its keys and do
+    /// nothing. Showing the screenshots needs no such access, so its shortcut stays live.
+    @Test func windowShortcutsAreRegisteredOnlyWhileAccessibilityAccessIsGranted() {
         let hotKeys = FakeHotKeys()
         var isTrusted = false
         let model = makeModel(hotKeys: hotKeys) { isTrusted }
-        #expect(hotKeys.registered.isEmpty)
+        #expect(hotKeys.registered == screenshotsShortcutOnly)
 
         isTrusted = true
         model.permission.refresh()
@@ -274,7 +280,7 @@ private let controlOptionReturn = KeyCombo(keyCode: KeyCode.returnKey, modifiers
 
         isTrusted = false
         model.permission.refresh()
-        #expect(hotKeys.registered.isEmpty)
+        #expect(hotKeys.registered == screenshotsShortcutOnly)
     }
 
     @Test func aChangedShortcutIsRegisteredAtOnce() {
@@ -287,7 +293,7 @@ private let controlOptionReturn = KeyCombo(keyCode: KeyCode.returnKey, modifiers
 
         model.setShortcut(nil, for: .maximize)
         #expect(hotKeys.registered[.maximize] == nil)
-        #expect(hotKeys.registered.count == 5)
+        #expect(hotKeys.registered.count == defaultCount)
     }
 
     @Test func recordingPausesTheShortcuts() {
@@ -308,7 +314,7 @@ private let controlOptionReturn = KeyCombo(keyCode: KeyCode.returnKey, modifiers
         let model = makeModel(hotKeys: hotKeys)
         let controller = StatusMenuController(model: model) {}
         let menu = NSMenu()
-        #expect(hotKeys.registered.count == 5)
+        #expect(hotKeys.registered.count == defaultCount)
 
         controller.menuWillOpen(menu)
         #expect(hotKeys.registered.isEmpty)
@@ -318,15 +324,28 @@ private let controlOptionReturn = KeyCombo(keyCode: KeyCode.returnKey, modifiers
         #expect(hotKeys.registered.isEmpty)
 
         controller.menuDidClose(menu)
-        #expect(hotKeys.registered.count == 6)
+        #expect(hotKeys.registered.count == defaultCount + 1)
     }
 
-    @Test func closingTheMenuDoesNotRegisterShortcutsWithoutAccess() {
+    @Test func closingTheMenuDoesNotRegisterWindowShortcutsWithoutAccess() {
         let hotKeys = FakeHotKeys()
         let model = makeModel(hotKeys: hotKeys) { false }
         model.menuDidOpen()
-        model.menuDidClose()
         #expect(hotKeys.registered.isEmpty)
+        model.menuDidClose()
+        #expect(hotKeys.registered == screenshotsShortcutOnly)
+    }
+
+    @Test func theScreenshotsShortcutShowsThePanelAndMovesNoWindow() {
+        let hotKeys = FakeHotKeys()
+        var performed: [WindowAction] = []
+        var toggles = 0
+        let model = makeModel(hotKeys: hotKeys, act: { performed.append($0) })
+        model.toggleRecentScreenshots = { toggles += 1 }
+
+        hotKeys.onHotKey?(.recentScreenshots)
+        #expect(toggles == 1)
+        #expect(performed.isEmpty)
     }
 
     @Test func aShortcutMacOSRejectsIsReportedWithItsStatus() {
@@ -335,7 +354,7 @@ private let controlOptionReturn = KeyCombo(keyCode: KeyCode.returnKey, modifiers
         let model = makeModel(hotKeys: hotKeys)
 
         #expect(model.failedRegistrations == [.maximize: OSStatus(eventHotKeyExistsErr)])
-        #expect(hotKeys.registered.count == 4)
+        #expect(hotKeys.registered.count == defaultCount - 1)
 
         hotKeys.rejecting = [:]
         model.setShortcut(KeyCombo(keyCode: keyT, modifiers: controlOption), for: .maximize)
@@ -414,8 +433,10 @@ private let controlOptionReturn = KeyCombo(keyCode: KeyCode.returnKey, modifiers
         let menu = menu(for: makeModel { false })
         #expect(menu.items.first?.title == "Allow Accessibility Access…")
         for action in WindowAction.allCases {
-            #expect(try #require(menu.item(withTitle: action.title)).isEnabled == false)
+            // Showing the screenshots controls no window, so it stays available.
+            #expect(try #require(menu.item(withTitle: action.title)).isEnabled == !action.needsAccessibility)
         }
+        #expect(try #require(menu.item(withTitle: "Show Recent Screenshots")).isEnabled)
         #expect(try #require(menu.item(withTitle: "Settings…")).isEnabled)
     }
 }
@@ -429,8 +450,10 @@ private let controlOptionReturn = KeyCombo(keyCode: KeyCode.returnKey, modifiers
             .previousDisplay: "⌃⌥↑",
             .nextDisplay: "⌃⌥↓",
         ]
+        // The sixth default, for the screenshots, is a letter key and reads differently
+        // on other keyboard layouts.
         let defaults = ShortcutConfiguration.defaultShortcuts
-        #expect(defaults.count == expected.count)
+        #expect(defaults.count == expected.count + 1)
         for (action, string) in expected {
             let combo = defaults[action]
             #expect(combo.map(KeyComboFormatter.string(for:)) == string)
