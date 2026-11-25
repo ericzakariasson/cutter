@@ -281,6 +281,58 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
         #expect(model.selection == 0)
     }
 
+    // MARK: A screenshot that lands while the panel is open
+
+    private func newer(_ name: String) -> Screenshot {
+        Screenshot(url: URL(fileURLWithPath: "/samples/\(name).png"), date: Date(timeIntervalSinceReferenceDate: 5_000))
+    }
+
+    /// With the newest selected, the one that has just landed becomes the selection:
+    /// it is what the panel was opened for.
+    @Test func aRefreshShowsTheNewScreenshotAndKeepsTheNewestSelected() {
+        var list = screenshots(4)
+        let model = makeModel(Recorder()) { list }
+        model.reload()
+        #expect(model.selection == 0)
+
+        list.insert(newer("Just taken"), at: 0)
+        model.refresh()
+        #expect(model.screenshots.count == 5)
+        #expect(model.selection == 0)
+        #expect(model.selectedScreenshot?.url.lastPathComponent == "Just taken.png")
+    }
+
+    /// With another one selected, that one stays selected wherever it now sits.
+    @Test func aRefreshKeepsTheSelectedScreenshotSelected() {
+        var list = screenshots(6)
+        let model = makeModel(Recorder()) { list }
+        model.reload()
+        model.selection = 3
+
+        list.insert(newer("Just taken"), at: 0)
+        model.refresh()
+        #expect(model.selection == 4)
+        #expect(model.selectedScreenshot?.url.lastPathComponent == "Sample 3.png")
+
+        // The selected one is gone: back to the newest.
+        list.remove(at: 4)
+        model.refresh()
+        #expect(model.selection == 0)
+    }
+
+    @Test func aRefreshThatFindsNothingNewChangesNothing() {
+        let model = makeModel(Recorder()) { screenshots(4) }
+        model.reload()
+        model.selection = 2
+        var listed = 0
+        model.onListed = { listed += 1 }
+
+        model.refresh()
+        #expect(model.selection == 2)
+        #expect(model.state == .loaded)
+        #expect(listed == 1)
+    }
+
     @Test func aClickedScreenshotIsTheOneActedOn() {
         let recorder = Recorder()
         let model = makeModel(recorder) { screenshots(5) }
@@ -518,6 +570,31 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
         #expect(session.controller.isOpen)
         session.controller.appCameForward(processIdentifier: 1)
         #expect(session.reasons == [.otherAppCameForward])
+    }
+
+    /// macOS saves a screenshot only when its corner preview has gone, which can be
+    /// after the panel has read the folder. The open panel reads again when it lands.
+    @Test func aChangeInTheFolderIsReadWhileThePanelIsOpen() {
+        let session = Session()
+        session.open()
+        #expect(session.controller.model.screenshots.count == 6)
+
+        session.answer.insert(Screenshot(url: URL(fileURLWithPath: "/samples/Just taken.png"), date: Date(timeIntervalSinceReferenceDate: 5_000)), at: 0)
+        session.controller.folderChanged()
+        #expect(session.controller.model.screenshots.count == 7)
+        #expect(session.controller.model.selectedScreenshot?.url.lastPathComponent == "Just taken.png")
+        #expect(session.controller.isOpen)
+    }
+
+    /// The folder is touched only while the panel is open.
+    @Test func aChangeInTheFolderIsNotReadOnceThePanelIsClosed() {
+        let session = Session()
+        session.open()
+        session.controller.close(.command)
+
+        session.answer.removeAll()
+        session.controller.folderChanged()
+        #expect(session.controller.model.screenshots.count == 6)
     }
 
     @Test func nothingIsReadAndNothingIsOpenUntilAskedToShow() {
@@ -1138,5 +1215,57 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
 
         let after = try #require(try await thumbnail(of: screenshot, in: thumbnails, view: view))
         #expect(abs(after.size.width / after.size.height - 4.0) < 0.05)
+    }
+}
+
+/// Watching a folder of the test's own.
+@MainActor
+@Suite struct FolderWatcherTests {
+    private func temporaryFolder() throws -> URL {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("CutterTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        return folder
+    }
+
+    private func wait(upTo seconds: Double, until done: () -> Bool) async throws {
+        for _ in 0..<Int(seconds / 0.02) where !done() {
+            try await Task.sleep(nanoseconds: 20_000_000)
+        }
+    }
+
+    /// The screenshot tool writes a hidden file and renames it: several changes, one report.
+    @Test func aFileLandingInTheFolderIsReportedOnce() async throws {
+        let folder = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        var reports = 0
+        let watcher = try #require(FolderWatcher(folder: folder, delay: 0.1) { reports += 1 })
+        defer { watcher.stop() }
+
+        let hidden = folder.appendingPathComponent(".Sample.png")
+        try Data("sample".utf8).write(to: hidden)
+        try FileManager.default.moveItem(at: hidden, to: folder.appendingPathComponent("Sample.png"))
+
+        try await wait(upTo: 3) { reports > 0 }
+        #expect(reports == 1)
+        // Quiet folder, no more reports.
+        try await Task.sleep(nanoseconds: 300_000_000)
+        #expect(reports == 1)
+    }
+
+    @Test func aStoppedWatcherReportsNothing() async throws {
+        let folder = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        var reports = 0
+        let watcher = try #require(FolderWatcher(folder: folder, delay: 0.05) { reports += 1 })
+        watcher.stop()
+
+        try Data("sample".utf8).write(to: folder.appendingPathComponent("Sample.png"))
+        try await Task.sleep(nanoseconds: 400_000_000)
+        #expect(reports == 0)
+    }
+
+    @Test func aFolderThatIsNotThereCannotBeWatched() {
+        let missing = FileManager.default.temporaryDirectory.appendingPathComponent("CutterTests-missing-\(UUID().uuidString)")
+        #expect(FolderWatcher(folder: missing) {} == nil)
     }
 }

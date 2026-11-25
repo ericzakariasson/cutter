@@ -51,7 +51,8 @@ The panel has the keyboard while it is open and gives it back when it closes. It
 - **What counts as a screenshot.** A picture that macOS marked as a screenshot when it saved it, whatever the file is called now, or one whose name starts with "Screenshot" (in English or in your Mac's language) or with your own screenshot name prefix.
 - **What counts as a recording.** A `.mov` or `.mp4` that macOS marked as a screen capture, or one whose name starts with "Screen Recording". Recordings have a play badge. Other movies in the folder are not shown, and neither are screenshots or recordings moved out of it.
 - **How many.** The newest 30.
-- **When it reads the folder.** Each time the panel opens, and at no other time, so the panel is up to date whenever you look.
+- **When it reads the folder.** Each time the panel opens, and again while it is open whenever something lands in the folder. Never while the panel is closed.
+- **A screenshot you have just taken.** With the corner preview on, macOS saves a screenshot only when the preview has gone, about five seconds after you took it. Until then there is no file for Cutter to show. If the panel is open at that moment, the screenshot appears at the top by itself. To have screenshots saved at once, switch off Show Floating Thumbnail under Options in the Screenshot toolbar (⇧⌘5).
 - **Permission.** If the folder is the Desktop, Documents or Downloads, macOS asks once, the first time the panel opens, whether Cutter may access files there. The panel closes while the question is up; open it again after answering. Cutter reads the screenshots to show them, and changes a file only when you press Done in Markup. Without the permission the panel says so; it can be given later under System Settings > Privacy & Security > Files and Folders. This feature does not need Accessibility access.
 
 ## Shortcuts and other apps

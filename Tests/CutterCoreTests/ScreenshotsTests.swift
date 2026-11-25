@@ -287,3 +287,64 @@ private final class SampleFolder {
         #expect(move(.up, from: 1, count: 3) == 1)
     }
 }
+
+/// What a look into the folder reports besides the list: numbers and ages, for the log.
+@Suite struct FolderSurveyTests {
+    private let start = Date(timeIntervalSinceReferenceDate: 800_000_000)
+
+    @Test func theSurveyCountsWhatIsThereAndWhatIsShown() throws {
+        let folder = try SampleFolder()
+        try folder.add("Screenshot A.png", minute: 1)
+        try folder.add("Screenshot B.png", minute: 2)
+        try folder.add("Screen Recording C.mov", minute: 3)
+        try folder.add("Holiday.png", minute: 4)
+        try folder.add("Notes.txt", minute: 9)
+
+        let found = try ScreenshotFinder.look(in: folder.url, namePrefix: nil, limit: 2)
+        #expect(found.screenshots.count == 2)
+        #expect(found.survey.items == 5)
+        #expect(found.survey.counting == 3)
+        #expect(found.survey.shown == 2)
+        #expect(found.survey.newestShown == start.addingTimeInterval(3 * 60))
+        // A picture that is no screenshot is the newest one left out; the text file is
+        // only the newest item.
+        #expect(found.survey.newestLeftOut == start.addingTimeInterval(4 * 60))
+        #expect(found.survey.newestItem == start.addingTimeInterval(9 * 60))
+    }
+
+    /// The screenshot tool writes a hidden file first. It is not listed, and the survey
+    /// shows that something newer than the list is on its way.
+    @Test func aScreenshotStillBeingWrittenShowsUpInTheSurveyOnly() throws {
+        let folder = try SampleFolder()
+        try folder.add("Screenshot A.png", minute: 1)
+        try folder.add(".Screenshot B.png", minute: 5)
+
+        let found = try ScreenshotFinder.look(in: folder.url, namePrefix: nil, limit: 30)
+        #expect(found.screenshots.map(\.url.lastPathComponent) == ["Screenshot A.png"])
+        #expect(found.survey.newestShown == start.addingTimeInterval(60))
+        #expect(found.survey.newestLeftOut == start.addingTimeInterval(5 * 60))
+    }
+
+    @Test func anEmptyFolderHasNothingToReport() throws {
+        let folder = try SampleFolder()
+        let survey = try ScreenshotFinder.look(in: folder.url, namePrefix: nil, limit: 30).survey
+        #expect(survey == FolderSurvey(items: 0))
+        #expect(survey.summary(now: start) == "0 shown of 0 that count, 0 items in the folder; newest shown: none; newest picture or movie left out: none; newest item of any kind: none")
+    }
+
+    /// The line that goes into the log: counts and ages, and no name of anything.
+    @Test func theSummaryGivesCountsAndAges() {
+        var survey = FolderSurvey(items: 120)
+        survey.counting = 41
+        survey.shown = 30
+        survey.newestShown = start.addingTimeInterval(-95)
+        survey.newestLeftOut = start.addingTimeInterval(-3 * 3600)
+        survey.newestItem = start.addingTimeInterval(-12)
+        #expect(survey.summary(now: start) == "30 shown of 41 that count, 120 items in the folder; newest shown: 95 s old; newest picture or movie left out: 3 h old; newest item of any kind: 12 s old")
+
+        survey.newestShown = start.addingTimeInterval(-10 * 60)
+        survey.newestLeftOut = start.addingTimeInterval(-9 * 86400)
+        survey.newestItem = start.addingTimeInterval(20)
+        #expect(survey.summary(now: start).hasSuffix("newest shown: 10 min old; newest picture or movie left out: 9 d old; newest item of any kind: dated 20 s ahead"))
+    }
+}

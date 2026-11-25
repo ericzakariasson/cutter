@@ -90,6 +90,45 @@ public enum ScreenshotLocation {
     }
 }
 
+/// What a look into the screenshot folder found, as numbers and ages only: nothing here
+/// names a file or says what a picture shows. It goes into the log, to tell "the
+/// screenshot is not in the folder yet" from "it is there and Cutter leaves it out".
+public struct FolderSurvey: Equatable, Sendable {
+    /// Entries in the folder, of any kind.
+    public var items: Int
+    /// Screenshots and recordings that count, before the limit.
+    public var counting = 0
+    /// How many of those are listed.
+    public var shown = 0
+    public var newestShown: Date?
+    /// The newest picture or movie that is left out, hidden ones included.
+    public var newestLeftOut: Date?
+    /// The newest entry of any kind.
+    public var newestItem: Date?
+
+    public init(items: Int) {
+        self.items = items
+    }
+
+    public func summary(now: Date = Date()) -> String {
+        func age(_ date: Date?) -> String {
+            guard let date else {
+                return "none"
+            }
+            let seconds = now.timeIntervalSince(date)
+            switch seconds {
+            case ..<0: return "dated \(Int((-seconds).rounded())) s ahead"
+            case ..<120: return "\(Int(seconds.rounded())) s old"
+            case ..<7200: return "\(Int((seconds / 60).rounded())) min old"
+            case ..<172_800: return "\(Int((seconds / 3600).rounded())) h old"
+            default: return "\(Int((seconds / 86400).rounded())) d old"
+            }
+        }
+        return "\(shown) shown of \(counting) that count, \(items) items in the folder; newest shown: \(age(newestShown)); "
+            + "newest picture or movie left out: \(age(newestLeftOut)); newest item of any kind: \(age(newestItem))"
+    }
+}
+
 /// Decides which files in a folder are screenshots, and lists the newest.
 public enum ScreenshotFinder {
     /// The extended attribute macOS puts on every screenshot it saves, whatever the file
@@ -163,28 +202,61 @@ public enum ScreenshotFinder {
         names: ScreenshotNames = .english,
         fileManager: FileManager = .default
     ) throws -> [Screenshot] {
+        try look(in: folder, namePrefix: namePrefix, limit: limit, names: names, fileManager: fileManager).screenshots
+    }
+
+    /// The listing together with what the folder held, in numbers.
+    public static func look(
+        in folder: URL,
+        namePrefix: String?,
+        limit: Int,
+        names: ScreenshotNames = .english,
+        fileManager: FileManager = .default
+    ) throws -> (screenshots: [Screenshot], survey: FolderSurvey) {
         let keys: [URLResourceKey] = [.isRegularFileKey, .creationDateKey, .contentModificationDateKey]
         let files = try fileManager.contentsOfDirectory(at: folder, includingPropertiesForKeys: keys, options: [])
 
+        var survey = FolderSurvey(items: files.count)
         var screenshots: [Screenshot] = []
         for file in files {
             let name = file.lastPathComponent
+            let values = try? file.resourceValues(forKeys: Set(keys))
+            let date = values?.creationDate ?? values?.contentModificationDate
+            survey.newestItem = later(survey.newestItem, date)
+
+            // A hidden picture or movie is one the screenshot tool is still writing.
+            let visibleName = name.hasPrefix(".") ? String(name.dropFirst()) : name
+            let isPictureOrMovie = kind(fileName: visibleName, isMarkedAsScreenCapture: true, namePrefix: namePrefix, names: names) != nil
             // The cheap test on the name first; the mark is only read for pictures and movies.
-            guard kind(fileName: name, isMarkedAsScreenCapture: true, namePrefix: namePrefix, names: names) != nil,
-                  let values = try? file.resourceValues(forKeys: Set(keys)),
-                  values.isRegularFile == true,
+            guard isPictureOrMovie, !name.hasPrefix("."),
+                  values?.isRegularFile == true,
                   kind(fileName: name, isMarkedAsScreenCapture: isMarkedAsScreenCapture(file), namePrefix: namePrefix, names: names) != nil,
-                  let date = values.creationDate ?? values.contentModificationDate
+                  let date
             else {
+                if isPictureOrMovie, values?.isRegularFile == true {
+                    survey.newestLeftOut = later(survey.newestLeftOut, date)
+                }
                 continue
             }
             screenshots.append(Screenshot(url: file, date: date))
         }
-        return newest(screenshots, limit: limit)
+        let shown = newest(screenshots, limit: limit)
+        survey.counting = screenshots.count
+        survey.shown = shown.count
+        survey.newestShown = shown.first?.date
+        return (shown, survey)
     }
 
-    /// The newest `limit` screenshots, newest first. Screenshots taken in the same instant
-    /// are ordered by name, so the order is the same every time.
+    private static func later(_ first: Date?, _ second: Date?) -> Date? {
+        guard let first else {
+            return second
+        }
+        guard let second else {
+            return first
+        }
+        return max(first, second)
+    }
+
     public static func newest(_ screenshots: [Screenshot], limit: Int) -> [Screenshot] {
         let sorted = screenshots.sorted { first, second in
             if first.date != second.date {

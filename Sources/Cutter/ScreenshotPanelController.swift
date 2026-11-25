@@ -91,6 +91,8 @@ final class ScreenshotPanelController: NSObject, NSWindowDelegate {
     private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
     private var loadingTimer: Timer?
     private var dragTimer: Timer?
+    private var folderWatcher: FolderWatcher?
+    private var watchedFolder: URL?
 
     override init() {
         model = ScreenshotBrowserModel()
@@ -110,6 +112,9 @@ final class ScreenshotPanelController: NSObject, NSWindowDelegate {
         }
         markup.onClosed = { [weak self] file in
             self?.markupEnded(with: file)
+        }
+        model.onListed = { [weak self] in
+            self?.watchTheFolder()
         }
     }
 
@@ -182,6 +187,8 @@ final class ScreenshotPanelController: NSObject, NSWindowDelegate {
         guard listensToTheSystem else {
             return
         }
+        // A folder already read on an earlier opening can be watched from the start.
+        watchTheFolder()
         clickMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] _ in
             self?.close(.clickElsewhere)
         }
@@ -254,6 +261,33 @@ final class ScreenshotPanelController: NSObject, NSWindowDelegate {
         }
     }
 
+    // MARK: - Screenshots that land while the panel is open
+
+    /// With the corner preview on, macOS saves a screenshot only when the preview has
+    /// gone, which can be after the panel has read the folder. So while the panel is
+    /// open, and only then, the folder is watched and read again when something lands.
+    ///
+    /// Watching starts after the first look into the folder has worked, when it is
+    /// known that Cutter may read it: asking for the folder must not hold up the main
+    /// thread while macOS has a question up.
+    private func watchTheFolder() {
+        guard isOpen, listensToTheSystem, let folder = model.folder, watchedFolder != folder else {
+            return
+        }
+        folderWatcher?.stop()
+        folderWatcher = FolderWatcher(folder: folder) { [weak self] in
+            self?.folderChanged()
+        }
+        watchedFolder = folderWatcher == nil ? nil : folder
+    }
+
+    func folderChanged() {
+        guard isOpen else {
+            return
+        }
+        model.refresh()
+    }
+
     // MARK: - Plumbing
 
     private func observe(_ center: NotificationCenter, _ name: Notification.Name, _ handler: @escaping (Notification) -> Void) {
@@ -272,6 +306,9 @@ final class ScreenshotPanelController: NSObject, NSWindowDelegate {
         loadingTimer = nil
         dragTimer?.invalidate()
         dragTimer = nil
+        folderWatcher?.stop()
+        folderWatcher = nil
+        watchedFolder = nil
     }
 
     /// Hiding the panel gives the keyboard back to the app in front. This checks the two

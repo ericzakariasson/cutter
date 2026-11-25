@@ -32,12 +32,16 @@ final class ScreenshotBrowserModel: ObservableObject {
         /// The screenshot folder and file-name prefix macOS is set to.
         var location: () -> (folder: URL, namePrefix: String?) = { ScreenshotLocation.current() }
         var find: (URL, String?) throws -> [Screenshot] = { folder, namePrefix in
-            try ScreenshotFinder.recent(
+            let found = try ScreenshotFinder.look(
                 in: folder,
                 namePrefix: namePrefix,
                 limit: ScreenshotBrowserModel.limit,
                 names: .system()
             )
+            // Numbers and ages only, never a name: enough to tell a screenshot that is not
+            // in the folder yet from one that is there and left out.
+            NSLog("Cutter: screenshots read: %@", found.survey.summary())
+            return found.screenshots
         }
         /// Reading the folder waits for the user's answer when macOS asks for access, so
         /// it must not happen on the main thread.
@@ -65,6 +69,8 @@ final class ScreenshotBrowserModel: ObservableObject {
     @Published private(set) var picturesVersion = 0
 
     var environment: Environment
+    /// Called on the main thread after each look into the folder that worked.
+    var onListed: (() -> Void)?
     private var generation = 0
 
     init(environment: Environment = Environment()) {
@@ -79,6 +85,18 @@ final class ScreenshotBrowserModel: ObservableObject {
     /// is in it, and the newest screenshot otherwise. A list from an earlier look stays
     /// up meanwhile, so that reopening the panel does not flash empty.
     func reload(selecting file: URL? = nil) {
+        read(selecting: file, keepingSelection: false)
+    }
+
+    /// Reads the folder again while the panel is open, because something in it changed.
+    /// What is selected stays selected: the newest when the newest was, so that a
+    /// screenshot that has just landed is the one Return acts on, and otherwise the
+    /// same screenshot wherever it now sits.
+    func refresh() {
+        read(selecting: nil, keepingSelection: true)
+    }
+
+    private func read(selecting file: URL?, keepingSelection: Bool) {
         generation += 1
         let request = generation
         if screenshots.isEmpty {
@@ -97,12 +115,19 @@ final class ScreenshotBrowserModel: ObservableObject {
                 self.folder = location.folder
                 switch result {
                 case .success(let screenshots):
-                    self.screenshots = screenshots
+                    var file = file
+                    if keepingSelection, let selection = self.selection, selection > 0 {
+                        file = self.selectedScreenshot?.url
+                    }
+                    if self.screenshots != screenshots {
+                        self.screenshots = screenshots
+                    }
                     let wanted = file.flatMap { file in
                         screenshots.firstIndex { $0.url.standardizedFileURL.path == file.standardizedFileURL.path }
                     }
                     self.selection = screenshots.isEmpty ? nil : (wanted ?? 0)
                     self.state = screenshots.isEmpty ? .empty : .loaded
+                    self.onListed?()
                 case .failure(let error):
                     self.screenshots = []
                     self.selection = nil
