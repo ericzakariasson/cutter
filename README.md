@@ -31,24 +31,28 @@ Move to Previous Display and Move to Next Display send the focused window to ano
 
 ## Recent screenshots
 
-⌃⌥S, or Show Recent Screenshots in the menu, opens a panel with your newest screenshots as thumbnails, newest first. The same shortcut closes it again, as do Escape and a click anywhere else.
+⌃⌥S, or Show Recent Screenshots in the menu, opens a panel with your newest screenshots and screen recordings as thumbnails, newest first. The same shortcut closes it again, as do Escape and a click anywhere else.
 
 | In the panel | Keyboard | Mouse |
 | --- | --- | --- |
 | Choose a screenshot | Arrow keys, Home, End | Click |
-| Open it | ↩ | Double-click, or the Open button |
+| Draw on it or crop it | ⌘E | Double-click, the Markup button, or right-click > Markup |
+| Open it in its app | ↩ | The Open button, or right-click > Open |
 | Copy it to the clipboard | ⌘C | The Copy button, or right-click > Copy |
 | Show it in Finder | ⌘↩ or ⌘R | The Show in Finder button, or right-click |
 | Use it in another app | | Drag the thumbnail there |
 
-The panel has the keyboard while it is open and gives it back when it closes. It closes after opening, copying or showing a screenshot in Finder, after a thumbnail has been dragged out, and whenever your attention goes elsewhere: a click outside it, another app coming forward, or anything else taking the keyboard. A copied screenshot pastes as a picture where pictures go and as a file in Finder.
+The panel has the keyboard while it is open and gives it back when it closes. It closes after marking up, opening, copying or showing a screenshot in Finder, after a thumbnail has been dragged out, and whenever your attention goes elsewhere: a click outside it, another app coming forward, or anything else taking the keyboard. A copied screenshot pastes as a picture where pictures go and as a file in Finder; a copied recording pastes as a file.
+
+**Markup.** Double-clicking a screenshot opens it in macOS's own Markup editor, the one behind the screenshot thumbnail, Quick Look and Mail: pen, shapes, arrows, text and crop. Cutter shows the screenshot in a window and Markup opens on it. Done saves the edited picture over the screenshot file, as macOS does when you mark up a screenshot from its thumbnail: same name, same format, same place in the list. There is no copy of the original, so keep one yourself if you may want it back. Cancel leaves the file as it was. The window also has an Open in Preview button, where the same tools are in the Markup toolbar. A screen recording cannot be drawn on; double-clicking it opens it in its app, where it can be trimmed.
 
 - **How it looks.** On macOS 26 the panel is a sheet of the system's Liquid Glass; on macOS 13 to 15 it uses the standard blurred material. The selected screenshot is marked the way Finder marks a selected icon, in your accent colour.
 - **Where it looks.** In the folder macOS saves screenshots to: the one chosen under Options in the Screenshot toolbar (⇧⌘5), or the Desktop when none was chosen.
-- **What counts as a screenshot.** A picture that macOS marked as a screenshot when it saved it, whatever the file is called now, or one whose name starts with "Screenshot" or with your own screenshot name prefix. Screen recordings are not shown. Screenshots moved out of the folder are not found.
+- **What counts as a screenshot.** A picture that macOS marked as a screenshot when it saved it, whatever the file is called now, or one whose name starts with "Screenshot" (in English or in your Mac's language) or with your own screenshot name prefix.
+- **What counts as a recording.** A `.mov` or `.mp4` that macOS marked as a screen capture, or one whose name starts with "Screen Recording". Recordings have a play badge. Other movies in the folder are not shown, and neither are screenshots or recordings moved out of it.
 - **How many.** The newest 30.
 - **When it reads the folder.** Each time the panel opens, and at no other time, so the panel is up to date whenever you look.
-- **Permission.** If the folder is the Desktop, Documents or Downloads, macOS asks once, the first time the panel opens, whether Cutter may access files there. The panel closes while the question is up; open it again after answering. Cutter reads the screenshots to show them and changes nothing. Without the permission the panel says so; it can be given later under System Settings > Privacy & Security > Files and Folders. This feature does not need Accessibility access.
+- **Permission.** If the folder is the Desktop, Documents or Downloads, macOS asks once, the first time the panel opens, whether Cutter may access files there. The panel closes while the question is up; open it again after answering. Cutter reads the screenshots to show them, and changes a file only when you press Done in Markup. Without the permission the panel says so; it can be given later under System Settings > Privacy & Security > Files and Folders. This feature does not need Accessibility access.
 
 ## Shortcuts and other apps
 

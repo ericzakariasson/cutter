@@ -60,7 +60,8 @@ enum ScreenshotPanelSnapshot {
                 throw CocoaError(.fileWriteUnknown)
             }
             try data.write(to: URL(fileURLWithPath: path))
-            print("Wrote \(path): \(model.screenshots.count) sample pictures, \(bitmap.pixelsWide)x\(bitmap.pixelsHigh) pixels")
+            let missing = model.screenshots.filter { thumbnails.cached($0) == nil }.count
+            print("Wrote \(path): \(model.screenshots.count) samples (\(model.screenshots.filter(\.isRecording).count) recordings, \(missing) without a thumbnail), \(bitmap.pixelsWide)x\(bitmap.pixelsHigh) pixels")
             return 0
         } catch {
             print("Failed: \(error.localizedDescription)")
@@ -106,6 +107,14 @@ enum ScreenshotPanelSnapshot {
             try png(for: sample).write(to: file)
             try ScreenshotFinder.markAsScreenCapture(file)
             let date = now.addingTimeInterval(-sample.secondsAgo)
+            try FileManager.default.setAttributes([.creationDate: date, .modificationDate: date], ofItemAtPath: file.path)
+        }
+        // Two screen recordings among them.
+        for (name, minutesAgo, hue) in [("Recording 1.mov", 20.0, 0.58), ("Recording 2.mov", 200.0, 0.1)] {
+            let file = folder.appendingPathComponent(name)
+            try SampleMovie.write(to: file, hue: hue)
+            try ScreenshotFinder.markAsScreenCapture(file)
+            let date = now.addingTimeInterval(-minutesAgo * 60)
             try FileManager.default.setAttributes([.creationDate: date, .modificationDate: date], ofItemAtPath: file.path)
         }
         // Not screenshots; the panel must leave them out.

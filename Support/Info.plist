@@ -29,11 +29,11 @@
 	<key>LSUIElement</key>
 	<true/>
 	<key>NSDesktopFolderUsageDescription</key>
-	<string>Cutter shows your recent screenshots, which macOS saves to the Desktop.</string>
+	<string>Cutter shows your recent screenshots and recordings, which macOS saves to the Desktop, and saves the changes you make to one in Markup.</string>
 	<key>NSDocumentsFolderUsageDescription</key>
-	<string>Cutter shows your recent screenshots, which macOS is set to save in Documents.</string>
+	<string>Cutter shows your recent screenshots and recordings, which macOS is set to save in Documents, and saves the changes you make to one in Markup.</string>
 	<key>NSDownloadsFolderUsageDescription</key>
-	<string>Cutter shows your recent screenshots, which macOS is set to save in Downloads.</string>
+	<string>Cutter shows your recent screenshots and recordings, which macOS is set to save in Downloads, and saves the changes you make to one in Markup.</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
 	<key>NSPrincipalClass</key>

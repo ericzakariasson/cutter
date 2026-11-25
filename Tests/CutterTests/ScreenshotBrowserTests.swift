@@ -222,8 +222,9 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
         #expect(recorder.closes == 3)
     }
 
-    /// Markup closes the panel first: the editor is a window of its own.
-    @Test func markupEditsTheSelectionAfterClosingThePanel() {
+    /// The editor comes up before the panel goes, so that the panel's closing, which
+    /// can send Cutter to the background, does not catch the editor's window.
+    @Test func markupEditsTheSelectionAndThenClosesThePanel() {
         let recorder = Recorder()
         var closesWhenEditing: [Int] = []
         let model = makeModel(recorder) { screenshots(5) }
@@ -232,8 +233,16 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
         model.perform(.move(.right))
 
         model.perform(.edit)
-        #expect(closesWhenEditing == [1])
+        #expect(closesWhenEditing == [0])
+        #expect(recorder.closes == 1)
         #expect(recorder.opened.isEmpty)
+    }
+
+    @Test func anEditedFileMakesThePanelReadItsPictureAgain() {
+        let model = makeModel(Recorder()) { screenshots(2) }
+        let before = model.picturesVersion
+        model.picturesChanged()
+        #expect(model.picturesVersion == before + 1)
     }
 
     @Test func doubleClickingAScreenshotMarksItUp() {
@@ -903,6 +912,28 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
         let small = ScreenshotMarkupController.windowPictureSize(for: NSSize(width: 60, height: 40), in: screen)
         #expect(small.width >= 388)
         #expect(small.height >= 224)
+    }
+
+    /// The recording here is a movie the test writes itself.
+    @Test func aRecordingGetsAFrameAsItsThumbnail() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("CutterTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("Clip.mov")
+        try SampleMovie.write(to: file, width: 640, height: 400)
+
+        let image = try #require(ThumbnailStore.thumbnail(of: file))
+        #expect(image.size.width > image.size.height)
+        #expect(max(image.size.width, image.size.height) <= CGFloat(ThumbnailStore.pixelSize))
+    }
+
+    @Test func aRecordingThatCannotBeReadGetsNoThumbnail() throws {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("CutterTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("Broken.mov")
+        try Data("not a movie".utf8).write(to: file)
+        #expect(ThumbnailStore.thumbnail(of: file) == nil)
     }
 
     @Test func theSystemsMarkupEditorIsPresentOnThisMac() {

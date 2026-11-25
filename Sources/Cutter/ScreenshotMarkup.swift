@@ -11,6 +11,9 @@ import UniformTypeIdentifiers
 /// that asks for it. So this shows the screenshot in a window of Cutter's and hands that
 /// to Markup. The window also offers Markup again and Preview, in case the editor does
 /// not come up.
+///
+/// The editor is never opened by a test: it would take the keyboard. What is tested is
+/// what happens to the file with what the editor returns.
 final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWindowDelegate {
     static let serviceName = NSSharingService.Name("com.apple.MarkupUI.Markup")
 
@@ -41,6 +44,7 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
         // Markup needs the keyboard and a frontmost window, so here Cutter does come forward.
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
+        window.orderFrontRegardless()
         NSLog("Cutter: markup: window opened")
 
         // Started on the next turn of the run loop, when the window is really on screen
@@ -62,11 +66,13 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
         }
         service.delegate = self
         self.service = service
-        guard service.canPerform(withItems: [provider]) else {
-            NSLog("Cutter: markup: the Markup editor does not take this kind of picture")
-            return
-        }
-        NSLog("Cutter: markup: editor asked for")
+        // The editor is asked whatever it answers here; the answer is for the log.
+        NSLog(
+            "Cutter: markup: editor asked for (says it can: %@, Cutter in front: %@, window has the keyboard: %@)",
+            service.canPerform(withItems: [provider]) ? "yes" : "no",
+            NSApp.isActive ? "yes" : "no",
+            window?.isKeyWindow == true ? "yes" : "no"
+        )
         service.perform(withItems: [provider])
     }
 
@@ -78,7 +84,7 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
         closeWindow()
     }
 
-    @objc private func done() {
+    @objc private func closeFromButton() {
         closeWindow()
     }
 
@@ -197,9 +203,10 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
 
         let markup = NSButton(title: "Markup", target: self, action: #selector(startMarkup))
         let preview = NSButton(title: "Open in Preview", target: self, action: #selector(openInPreview))
-        let done = NSButton(title: "Done", target: self, action: #selector(done))
-        done.keyEquivalent = "\r"
-        let buttons = NSStackView(views: [markup, preview, NSView(), done])
+        // No key of its own: Return and Escape belong to the editor while it is up, and
+        // must not close the window under it.
+        let close = NSButton(title: "Close", target: self, action: #selector(closeFromButton))
+        let buttons = NSStackView(views: [markup, preview, NSView(), close])
         buttons.orientation = .horizontal
         buttons.translatesAutoresizingMaskIntoConstraints = false
 
@@ -261,13 +268,27 @@ struct EditedPicture: Equatable {
                 return
             }
             if let provider = item as? NSItemProvider {
-                guard let type = provider.registeredTypeIdentifiers.first(where: { UTType($0)?.conforms(to: .image) == true || UTType($0)?.conforms(to: .pdf) == true }) else {
-                    continue
+                // Kinds of data only; nothing here names the file.
+                NSLog("Cutter: markup: the returned item offers %@", provider.registeredTypeIdentifiers.joined(separator: ", "))
+                let types = provider.registeredTypeIdentifiers
+                if let type = types.first(where: { UTType($0)?.conforms(to: .image) == true || UTType($0)?.conforms(to: .pdf) == true }) {
+                    provider.loadDataRepresentation(forTypeIdentifier: type) { data, _ in
+                        completion(data.map { EditedPicture(data: $0, typeIdentifier: type) })
+                    }
+                    return
                 }
-                provider.loadDataRepresentation(forTypeIdentifier: type) { data, _ in
-                    completion(data.map { EditedPicture(data: $0, typeIdentifier: type) })
+                if let type = types.first(where: { UTType($0)?.conforms(to: .fileURL) == true }) {
+                    // A file of the editor's own; its contents are read while it is lent.
+                    provider.loadDataRepresentation(forTypeIdentifier: type) { data, _ in
+                        guard let data, let url = URL(dataRepresentation: data, relativeTo: nil), let contents = try? Data(contentsOf: url) else {
+                            completion(nil)
+                            return
+                        }
+                        completion(EditedPicture(data: contents, typeIdentifier: UTType.image.identifier))
+                    }
+                    return
                 }
-                return
+                continue
             }
             if let url = item as? URL, let data = try? Data(contentsOf: url) {
                 let type = UTType(filenameExtension: url.pathExtension)?.identifier ?? UTType.png.identifier

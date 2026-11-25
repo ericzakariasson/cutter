@@ -61,6 +61,8 @@ final class ScreenshotBrowserModel: ObservableObject {
     @Published private(set) var screenshots: [Screenshot] = []
     @Published private(set) var folder: URL?
     @Published var selection: Int?
+    /// Goes up when a file's contents have changed, so that its thumbnail is made again.
+    @Published private(set) var picturesVersion = 0
 
     var environment: Environment
     private var generation = 0
@@ -133,15 +135,23 @@ final class ScreenshotBrowserModel: ObservableObject {
     }
 
     /// Marks up a screenshot. A recording cannot be drawn on, so it is opened in its
-    /// app, where it can be trimmed. The panel closes first: the editor is a window of
-    /// its own and takes the keyboard.
+    /// app, where it can be trimmed.
+    ///
+    /// The editor is a window of its own and takes the keyboard. It comes up before the
+    /// panel goes: the panel, on closing, sends Cutter to the background when Cutter has
+    /// no other window, and that must not catch the editor.
     func edit(_ screenshot: Screenshot) {
-        environment.close()
         if screenshot.isRecording {
             environment.open(screenshot.url)
         } else {
             environment.edit(screenshot.url)
         }
+        environment.close()
+    }
+
+    /// A file shown here has new contents.
+    func picturesChanged() {
+        picturesVersion += 1
     }
 
     func copy(_ screenshot: Screenshot) {

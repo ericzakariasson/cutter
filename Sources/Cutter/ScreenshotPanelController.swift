@@ -104,6 +104,7 @@ final class ScreenshotPanelController: NSObject, NSWindowDelegate {
         }
         markup.onSaved = { [weak self] _ in
             self?.thumbnails.forgetEverything()
+            self?.model.picturesChanged()
         }
     }
 

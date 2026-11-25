@@ -179,7 +179,8 @@ struct ScreenshotBrowserView: View {
                         ScreenshotCell(
                             screenshot: screenshot,
                             isSelected: model.selection == index,
-                            thumbnails: thumbnails
+                            thumbnails: thumbnails,
+                            version: model.picturesVersion
                         )
                         .id(index)
                         .onTapGesture(count: 2) {
@@ -309,6 +310,8 @@ private struct ScreenshotCell: View {
     let screenshot: Screenshot
     let isSelected: Bool
     let thumbnails: ThumbnailStore
+    /// Changes when a file has been edited; the picture is then read again.
+    let version: Int
 
     @State private var image: NSImage?
     @State private var isHovered = false
@@ -319,7 +322,7 @@ private struct ScreenshotCell: View {
                 RoundedRectangle(cornerRadius: 12, style: .continuous)
                     .fill(.quaternary)
                     .opacity(isSelected ? 1 : (isHovered ? 0.5 : 0))
-                if let image = image ?? thumbnails.cached(screenshot) {
+                if let image = thumbnails.cached(screenshot) ?? image {
                     Image(nsImage: image)
                         .resizable()
                         .aspectRatio(contentMode: .fit)
@@ -358,7 +361,14 @@ private struct ScreenshotCell: View {
         .frame(width: ScreenshotBrowserView.cellWidth)
         .contentShape(Rectangle())
         .onHover { isHovered = $0 }
-        .onAppear(perform: loadThumbnail)
+        .onAppear {
+            if image == nil {
+                loadThumbnail()
+            }
+        }
+        .onChange(of: version) { _ in
+            loadThumbnail()
+        }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(screenshot.isRecording ? "Screen recording" : "Screenshot"), \(Self.caption(for: screenshot.date))")
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
@@ -367,9 +377,6 @@ private struct ScreenshotCell: View {
     /// Reading and scaling a full-size screenshot takes a moment, so it happens off the
     /// main thread; the cell shows nothing until then.
     private func loadThumbnail() {
-        guard image == nil else {
-            return
-        }
         let store = thumbnails
         let screenshot = self.screenshot
         DispatchQueue.global(qos: .userInitiated).async {
