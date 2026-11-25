@@ -7,6 +7,7 @@ import CutterCore
 
 /// What the model did to the world, recorded instead of done.
 private final class Recorder {
+    var edited: [String] = []
     var opened: [String] = []
     var copied: [String] = []
     var revealed: [String] = []
@@ -51,6 +52,7 @@ private func makeModel(
         }
     }
     environment.onMain = { $0() }
+    environment.edit = { recorder.edited.append($0.lastPathComponent) }
     environment.open = { recorder.opened.append($0.lastPathComponent) }
     environment.copy = { recorder.copied.append($0.lastPathComponent) }
     environment.reveal = { recorder.revealed.append($0.lastPathComponent) }
@@ -220,6 +222,43 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
         #expect(recorder.closes == 3)
     }
 
+    /// Markup closes the panel first: the editor is a window of its own.
+    @Test func markupEditsTheSelectionAfterClosingThePanel() {
+        let recorder = Recorder()
+        var closesWhenEditing: [Int] = []
+        let model = makeModel(recorder) { screenshots(5) }
+        model.environment.edit = { _ in closesWhenEditing.append(recorder.closes) }
+        model.reload()
+        model.perform(.move(.right))
+
+        model.perform(.edit)
+        #expect(closesWhenEditing == [1])
+        #expect(recorder.opened.isEmpty)
+    }
+
+    @Test func doubleClickingAScreenshotMarksItUp() {
+        let recorder = Recorder()
+        let model = makeModel(recorder) { screenshots(5) }
+        model.reload()
+        model.edit(model.screenshots[3])
+        #expect(recorder.edited == ["Sample 3.png"])
+        #expect(recorder.closes == 1)
+    }
+
+    /// A recording cannot be drawn on; it opens in its app, where it can be trimmed.
+    @Test func aRecordingIsOpenedInsteadOfMarkedUp() {
+        let recorder = Recorder()
+        let recording = Screenshot(url: URL(fileURLWithPath: "/samples/Clip.mov"), date: Date(timeIntervalSinceReferenceDate: 9_000))
+        let model = makeModel(recorder) { [recording] + screenshots(2) }
+        model.reload()
+        #expect(model.selectedScreenshot?.isRecording == true)
+
+        model.perform(.edit)
+        #expect(recorder.edited.isEmpty)
+        #expect(recorder.opened == ["Clip.mov"])
+        #expect(recorder.closes == 1)
+    }
+
     @Test func aClickedScreenshotIsTheOneActedOn() {
         let recorder = Recorder()
         let model = makeModel(recorder) { screenshots(5) }
@@ -274,6 +313,7 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
         #expect(command(KeyCode.keypadEnter, "\u{3}", [.numericPad]) == .open)
         #expect(command(KeyCode.returnKey, "\r", [.command]) == .reveal)
         #expect(command(31, "o", [.command]) == .open)
+        #expect(command(14, "e", [.command]) == .edit)
         #expect(command(15, "r", [.command]) == .reveal)
     }
 
@@ -398,6 +438,7 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
                 }
             }
             controller.model.environment.onMain = { $0() }
+            controller.model.environment.edit = { _ in }
             controller.model.environment.open = { _ in }
             controller.model.environment.copy = { _ in }
             controller.model.environment.reveal = { _ in }
@@ -499,7 +540,7 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
     }
 
     @Test func escapeAndTheThreeActionsCloseThePanel() {
-        for command in [ScreenshotBrowserModel.Command.close, .open, .copy, .reveal] {
+        for command in [ScreenshotBrowserModel.Command.close, .edit, .open, .copy, .reveal] {
             let session = Session()
             session.open()
             session.controller.model.perform(command)
@@ -587,6 +628,20 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
         ScreenshotClipboard.copy(file, to: pasteboard)
         #expect(pasteboard.data(forType: .tiff) != nil)
         #expect(pasteboard.string(forType: .fileURL) == file.absoluteString)
+    }
+
+    @Test func aRecordingIsCopiedAsAFileOnly() throws {
+        let folder = try temporaryFolder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let file = folder.appendingPathComponent("Clip.mov")
+        try Data("not really a movie".utf8).write(to: file)
+        let pasteboard = pasteboard()
+        defer { pasteboard.releaseGlobally() }
+
+        ScreenshotClipboard.copy(file, to: pasteboard)
+        #expect(pasteboard.string(forType: .fileURL) == file.absoluteString)
+        #expect(pasteboard.data(forType: .png) == nil)
+        #expect(pasteboard.data(forType: .tiff) == nil)
     }
 
     @Test func copyingReplacesWhatWasThere() throws {
@@ -716,8 +771,141 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
     }
 
     @Test func theCountUnderTheListReadsNaturally() {
-        #expect(ScreenshotBrowserView.countLabel(1) == "1 screenshot")
-        #expect(ScreenshotBrowserView.countLabel(15) == "15 screenshots")
+        #expect(ScreenshotBrowserView.countLabel(1) == "1 item")
+        #expect(ScreenshotBrowserView.countLabel(15) == "15 items")
         #expect(ScreenshotBrowserView.countLabel(ScreenshotBrowserModel.limit) == "Newest 30")
+    }
+}
+
+/// Saving what the Markup editor hands back. The editor itself is never opened here.
+@Suite struct ScreenshotMarkupTests {
+    private func picture(width: Int, height: Int, as type: NSBitmapImageRep.FileType) throws -> Data {
+        let bitmap = try #require(NSBitmapImageRep(
+            bitmapDataPlanes: nil, pixelsWide: width, pixelsHigh: height, bitsPerSample: 8, samplesPerPixel: 4,
+            hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB, bytesPerRow: 0, bitsPerPixel: 0
+        ))
+        return try #require(bitmap.representation(using: type, properties: [:]))
+    }
+
+    private func pixelSize(of file: URL) throws -> (Int, Int) {
+        let source = try #require(CGImageSourceCreateWithURL(file as CFURL, nil))
+        let image = try #require(CGImageSourceCreateImageAtIndex(source, 0, nil))
+        return (image.width, image.height)
+    }
+
+    private func typeOf(_ file: URL) throws -> String {
+        let source = try #require(CGImageSourceCreateWithURL(file as CFURL, nil))
+        return try #require(CGImageSourceGetType(source) as String?)
+    }
+
+    /// A marked screenshot taken at a known time, in a folder of the test's own.
+    private func sampleScreenshot(named name: String, as type: NSBitmapImageRep.FileType) throws -> (folder: URL, file: URL, taken: Date) {
+        let folder = FileManager.default.temporaryDirectory.appendingPathComponent("CutterTests-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        let file = folder.appendingPathComponent(name)
+        try picture(width: 40, height: 30, as: type).write(to: file)
+        try ScreenshotFinder.markAsScreenCapture(file)
+        let taken = Date(timeIntervalSinceReferenceDate: 800_000_000)
+        try FileManager.default.setAttributes([.creationDate: taken, .modificationDate: taken], ofItemAtPath: file.path)
+        return (folder, file, taken)
+    }
+
+    @Test func theEditedPictureReplacesTheFileAndItStaysTheSameScreenshot() throws {
+        let (folder, file, taken) = try sampleScreenshot(named: "Sample.png", as: .png)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        // Cropped in the editor: the picture that comes back is smaller.
+        let edited = EditedPicture(data: try picture(width: 20, height: 10, as: .png), typeIdentifier: "public.png")
+        try ScreenshotFile.replace(file, with: edited)
+
+        #expect(try pixelSize(of: file) == (20, 10))
+        #expect(try Data(contentsOf: file) == edited.data)
+        #expect(ScreenshotFinder.isMarkedAsScreenCapture(file))
+        #expect(try file.resourceValues(forKeys: [.creationDateKey]).creationDate == taken)
+        // Nothing else is left in the folder, and the panel still lists it where it was.
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == ["Sample.png"])
+        let listed = try ScreenshotFinder.recent(in: folder, namePrefix: nil, limit: 5)
+        #expect(listed.map(\.date) == [taken])
+    }
+
+    @Test func aPictureReturnedInAnotherFormatIsConvertedToTheFilesOwn() throws {
+        let (folder, file, _) = try sampleScreenshot(named: "Sample.jpg", as: .jpeg)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let edited = EditedPicture(data: try picture(width: 24, height: 12, as: .png), typeIdentifier: "public.png")
+        try ScreenshotFile.replace(file, with: edited)
+
+        #expect(try typeOf(file) == "public.jpeg")
+        #expect(try pixelSize(of: file) == (24, 12))
+    }
+
+    @Test func dataOfUnknownFormatIsRecognisedByItsContents() throws {
+        let (folder, file, _) = try sampleScreenshot(named: "Sample.png", as: .png)
+        defer { try? FileManager.default.removeItem(at: folder) }
+
+        let tiff = EditedPicture(data: try picture(width: 16, height: 8, as: .tiff), typeIdentifier: "public.image")
+        try ScreenshotFile.replace(file, with: tiff)
+        #expect(try typeOf(file) == "public.png")
+        #expect(try pixelSize(of: file) == (16, 8))
+    }
+
+    @Test func somethingThatIsNotAPictureLeavesTheFileAlone() throws {
+        let (folder, file, taken) = try sampleScreenshot(named: "Sample.jpg", as: .jpeg)
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let before = try Data(contentsOf: file)
+
+        #expect(throws: (any Error).self) {
+            try ScreenshotFile.replace(file, with: EditedPicture(data: Data("garbage".utf8), typeIdentifier: "public.image"))
+        }
+        #expect(try Data(contentsOf: file) == before)
+        #expect(try file.resourceValues(forKeys: [.creationDateKey]).creationDate == taken)
+        #expect(try FileManager.default.contentsOfDirectory(atPath: folder.path) == ["Sample.jpg"])
+    }
+
+    @Test func thePictureIsFoundInWhateverFormTheEditorReturnsIt() async throws {
+        let png = try picture(width: 12, height: 6, as: .png)
+        func load(_ items: [Any]) async -> EditedPicture? {
+            await withCheckedContinuation { continuation in
+                EditedPicture.load(from: items) { continuation.resume(returning: $0) }
+            }
+        }
+
+        let provider = NSItemProvider()
+        provider.registerDataRepresentation(forTypeIdentifier: "public.png", visibility: .all) { completion in
+            completion(png, nil)
+            return nil
+        }
+        #expect(await load([provider]) == EditedPicture(data: png, typeIdentifier: "public.png"))
+
+        let extensionItem = NSExtensionItem()
+        extensionItem.attachments = [provider]
+        #expect(await load([extensionItem])?.data == png)
+
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("CutterTests-\(UUID().uuidString).png")
+        try png.write(to: file)
+        defer { try? FileManager.default.removeItem(at: file) }
+        #expect(await load([file]) == EditedPicture(data: png, typeIdentifier: "public.png"))
+
+        let image = try #require(NSImage(data: png))
+        #expect(await load([image])?.typeIdentifier == "public.tiff")
+
+        #expect(await load([]) == nil)
+        #expect(await load(["text"]) == nil)
+    }
+
+    @Test func thePictureIsShownAtItsOwnSizeOrSmallerButNeverTiny() {
+        let screen = NSSize(width: 1728, height: 1084)
+        #expect(ScreenshotMarkupController.windowPictureSize(for: NSSize(width: 800, height: 600), in: screen) == NSSize(width: 800, height: 600))
+        let large = ScreenshotMarkupController.windowPictureSize(for: NSSize(width: 3456, height: 2234), in: screen)
+        #expect(large.width <= screen.width * 0.8)
+        #expect(large.height <= screen.height * 0.8)
+        #expect(abs(large.width / large.height - 3456.0 / 2234.0) < 0.01)
+        let small = ScreenshotMarkupController.windowPictureSize(for: NSSize(width: 60, height: 40), in: screen)
+        #expect(small.width >= 388)
+        #expect(small.height >= 224)
+    }
+
+    @Test func theSystemsMarkupEditorIsPresentOnThisMac() {
+        #expect(ScreenshotMarkupController.isAvailable)
     }
 }

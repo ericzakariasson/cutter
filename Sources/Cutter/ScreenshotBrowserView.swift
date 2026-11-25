@@ -1,6 +1,7 @@
 import AppKit
 import CutterCore
 import ImageIO
+import QuickLookThumbnailing
 import SwiftUI
 
 /// Small versions of the screenshots, made off the main thread and kept while the panel
@@ -27,6 +28,12 @@ final class ThumbnailStore {
         return image
     }
 
+    /// Drops everything kept, after a file's contents have changed. The thumbnails are
+    /// made again the next time the panel shows them.
+    func forgetEverything() {
+        cache.removeAllObjects()
+    }
+
     private func key(_ screenshot: Screenshot) -> NSString {
         "\(screenshot.url.path)|\(screenshot.date.timeIntervalSinceReferenceDate)" as NSString
     }
@@ -41,8 +48,30 @@ final class ThumbnailStore {
            let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) {
             return NSImage(cgImage: image, size: NSSize(width: image.width, height: image.height))
         }
+        if ScreenshotFinder.recordingExtensions.contains(url.pathExtension.lowercased()) {
+            return movieThumbnail(of: url)
+        }
         // ImageIO does not read PDFs, which the screenshot tool can be set to write.
         return NSImage(contentsOf: url)
+    }
+
+    /// A frame of a recording, from the system's own thumbnail service. It answers on
+    /// another thread; this waits for it, so call it off the main thread.
+    private static func movieThumbnail(of url: URL) -> NSImage? {
+        let request = QLThumbnailGenerator.Request(
+            fileAt: url,
+            size: CGSize(width: pixelSize, height: pixelSize),
+            scale: 1,
+            representationTypes: .thumbnail
+        )
+        let done = DispatchSemaphore(value: 0)
+        var image: NSImage?
+        QLThumbnailGenerator.shared.generateBestRepresentation(for: request) { representation, _ in
+            image = representation?.nsImage
+            done.signal()
+        }
+        _ = done.wait(timeout: .now() + 5)
+        return image
     }
 }
 
@@ -117,7 +146,7 @@ struct ScreenshotBrowserView: View {
             UnavailableMessage(
                 symbol: "photo.on.rectangle.angled",
                 title: "No Screenshots Yet",
-                detail: "macOS saves screenshots to \(model.folder?.lastPathComponent ?? "the Desktop"). Take one with ⇧⌘3 or ⇧⌘4 and it shows up here."
+                detail: "macOS saves screenshots and screen recordings to \(model.folder?.lastPathComponent ?? "the Desktop"). Take one with ⇧⌘3, ⇧⌘4 or ⇧⌘5 and it shows up here."
             )
         case .notAllowed:
             UnavailableMessage(
@@ -154,7 +183,7 @@ struct ScreenshotBrowserView: View {
                         )
                         .id(index)
                         .onTapGesture(count: 2) {
-                            model.open(screenshot)
+                            model.edit(screenshot)
                         }
                         .simultaneousGesture(TapGesture().onEnded {
                             model.selection = index
@@ -164,6 +193,9 @@ struct ScreenshotBrowserView: View {
                             return NSItemProvider(contentsOf: screenshot.url) ?? NSItemProvider()
                         }
                         .contextMenu {
+                            if !screenshot.isRecording {
+                                Button("Markup") { model.edit(screenshot) }
+                            }
                             Button("Open") { model.open(screenshot) }
                             Button("Copy") { model.copy(screenshot) }
                             Button("Show in Finder") { model.reveal(screenshot) }
@@ -187,6 +219,8 @@ struct ScreenshotBrowserView: View {
     /// their keys beside the titles.
     private var footer: some View {
         HStack(spacing: 8) {
+            actionButton("Markup", keys: "⌘E", help: "Draw on it or crop it") { model.perform(.edit) }
+                .disabled(model.selectedScreenshot?.isRecording ?? true)
             actionButton("Open", keys: "↩", help: "Open in the default app") { model.perform(.open) }
             actionButton("Copy", keys: "⌘C", help: "Copy to the clipboard") { model.perform(.copy) }
             actionButton("Show in Finder", keys: "⌘↩", help: "Show the file in Finder") { model.perform(.reveal) }
@@ -206,7 +240,7 @@ struct ScreenshotBrowserView: View {
         if count >= ScreenshotBrowserModel.limit {
             return "Newest \(ScreenshotBrowserModel.limit)"
         }
-        return count == 1 ? "1 screenshot" : "\(count) screenshots"
+        return count == 1 ? "1 item" : "\(count) items"
     }
 
     private func actionButton(_ title: String, keys: String, help: String, action: @escaping () -> Void) -> some View {
@@ -297,6 +331,14 @@ private struct ScreenshotCell: View {
                         .shadow(color: .black.opacity(0.2), radius: 3, y: 1)
                         .padding(9)
                 }
+                if screenshot.isRecording {
+                    // The usual sign for something that plays.
+                    Image(systemName: "play.circle.fill")
+                        .font(.system(size: 28))
+                        .symbolRenderingMode(.palette)
+                        .foregroundStyle(.white, .black.opacity(0.45))
+                        .shadow(color: .black.opacity(0.25), radius: 2, y: 1)
+                }
             }
             .frame(width: ScreenshotBrowserView.cellWidth, height: ScreenshotBrowserView.cellHeight)
 
@@ -318,7 +360,7 @@ private struct ScreenshotCell: View {
         .onHover { isHovered = $0 }
         .onAppear(perform: loadThumbnail)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("Screenshot, \(Self.caption(for: screenshot.date))")
+        .accessibilityLabel("\(screenshot.isRecording ? "Screen recording" : "Screenshot"), \(Self.caption(for: screenshot.date))")
         .accessibilityAddTraits(isSelected ? [.isSelected] : [])
     }
 

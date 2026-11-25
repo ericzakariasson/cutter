@@ -19,6 +19,8 @@ final class ScreenshotBrowserModel: ObservableObject {
 
     enum Command: Equatable {
         case move(GridSelection.Move)
+        /// Mark up the screenshot: draw on it, crop it. A recording is opened instead.
+        case edit
         case open
         case copy
         case reveal
@@ -30,13 +32,20 @@ final class ScreenshotBrowserModel: ObservableObject {
         /// The screenshot folder and file-name prefix macOS is set to.
         var location: () -> (folder: URL, namePrefix: String?) = { ScreenshotLocation.current() }
         var find: (URL, String?) throws -> [Screenshot] = { folder, namePrefix in
-            try ScreenshotFinder.recent(in: folder, namePrefix: namePrefix, limit: ScreenshotBrowserModel.limit)
+            try ScreenshotFinder.recent(
+                in: folder,
+                namePrefix: namePrefix,
+                limit: ScreenshotBrowserModel.limit,
+                names: .system()
+            )
         }
         /// Reading the folder waits for the user's answer when macOS asks for access, so
         /// it must not happen on the main thread.
         var inBackground: (@escaping () -> Void) -> Void = { DispatchQueue.global(qos: .userInitiated).async(execute: $0) }
         var onMain: (@escaping () -> Void) -> Void = { DispatchQueue.main.async(execute: $0) }
         var open: (URL) -> Void = { NSWorkspace.shared.open($0) }
+        /// Opens the picture for marking up. Set by the panel's controller.
+        var edit: (URL) -> Void = { NSWorkspace.shared.open($0) }
         var copy: (URL) -> Void = { ScreenshotClipboard.copy($0) }
         var reveal: (URL) -> Void = { NSWorkspace.shared.activateFileViewerSelecting([$0]) }
         var close: () -> Void = {}
@@ -102,6 +111,10 @@ final class ScreenshotBrowserModel: ObservableObject {
         switch command {
         case .move(let move):
             selection = GridSelection.index(after: move, from: selection, count: screenshots.count, columns: Self.columns)
+        case .edit:
+            if let screenshot = selectedScreenshot {
+                edit(screenshot)
+            }
         case .open:
             act(on: selectedScreenshot, environment.open)
         case .copy:
@@ -117,6 +130,18 @@ final class ScreenshotBrowserModel: ObservableObject {
     /// the app the user came from gets the keyboard back.
     func open(_ screenshot: Screenshot) {
         act(on: screenshot, environment.open)
+    }
+
+    /// Marks up a screenshot. A recording cannot be drawn on, so it is opened in its
+    /// app, where it can be trimmed. The panel closes first: the editor is a window of
+    /// its own and takes the keyboard.
+    func edit(_ screenshot: Screenshot) {
+        environment.close()
+        if screenshot.isRecording {
+            environment.open(screenshot.url)
+        } else {
+            environment.edit(screenshot.url)
+        }
     }
 
     func copy(_ screenshot: Screenshot) {
@@ -168,6 +193,7 @@ final class ScreenshotBrowserModel: ObservableObject {
             return nil
         }
         switch character {
+        case "e": return .edit
         case "c": return .copy
         case "r": return .reveal
         case "o": return .open
@@ -192,12 +218,14 @@ final class ScreenshotBrowserModel: ObservableObject {
 }
 
 /// Puts a screenshot on the clipboard both as a file and as a picture, so it pastes into
-/// Finder and mail as a file and into chats, documents and image editors as an image.
+/// Finder and mail as a file and into chats, documents and image editors as an image. A
+/// recording goes on as a file only.
 enum ScreenshotClipboard {
     static func copy(_ url: URL, to pasteboard: NSPasteboard = .general) {
         let item = NSPasteboardItem()
         item.setString(url.absoluteString, forType: .fileURL)
-        if let data = try? Data(contentsOf: url) {
+        let isRecording = ScreenshotFinder.recordingExtensions.contains(url.pathExtension.lowercased())
+        if !isRecording, let data = try? Data(contentsOf: url) {
             if url.pathExtension.lowercased() == "png" {
                 item.setData(data, forType: .png)
             } else if let tiff = NSImage(data: data)?.tiffRepresentation {

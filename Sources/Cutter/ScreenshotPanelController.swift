@@ -83,6 +83,7 @@ final class ScreenshotPanelController: NSObject, NSWindowDelegate {
 
     private(set) var isOpen = false
     private let thumbnails = ThumbnailStore()
+    private let markup = ScreenshotMarkupController()
     private var panel: KeyPanel?
     private var clickMonitor: Any?
     private var observers: [(center: NotificationCenter, token: NSObjectProtocol)] = []
@@ -97,6 +98,12 @@ final class ScreenshotPanelController: NSObject, NSWindowDelegate {
         }
         model.environment.dragBegan = { [weak self] in
             self?.dragBegan()
+        }
+        model.environment.edit = { [weak self] file in
+            self?.markup.edit(file)
+        }
+        markup.onSaved = { [weak self] _ in
+            self?.thumbnails.forgetEverything()
         }
     }
 

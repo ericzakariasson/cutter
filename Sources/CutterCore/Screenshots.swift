@@ -1,6 +1,6 @@
 import Foundation
 
-/// A screenshot file and when it was taken.
+/// A screenshot or screen recording file and when it was taken.
 public struct Screenshot: Equatable, Hashable, Sendable {
     public var url: URL
     public var date: Date
@@ -8,6 +8,41 @@ public struct Screenshot: Equatable, Hashable, Sendable {
     public init(url: URL, date: Date) {
         self.url = url
         self.date = date
+    }
+
+    /// Whether this is a screen recording, a movie, and not a still picture.
+    public var isRecording: Bool {
+        ScreenshotFinder.recordingExtensions.contains(url.pathExtension.lowercased())
+    }
+}
+
+/// What macOS calls the files it saves, which is how they start their names.
+public struct ScreenshotNames: Equatable, Sendable {
+    public var screenshot: [String]
+    public var recording: [String]
+
+    public init(screenshot: [String], recording: [String]) {
+        self.screenshot = screenshot
+        self.recording = recording
+    }
+
+    /// The English names, now and before macOS 11.
+    public static let english = ScreenshotNames(screenshot: ["Screenshot", "Screen Shot"], recording: ["Screen Recording"])
+
+    /// The English names plus the ones this Mac's language uses, read from the macOS
+    /// screenshot tool itself.
+    public static func system() -> ScreenshotNames {
+        var names = english
+        guard let tool = Bundle(path: "/System/Library/CoreServices/screencaptureui.app") else {
+            return names
+        }
+        for (key, keyPath) in [("Screenshot", \ScreenshotNames.screenshot), ("Screen Recording", \ScreenshotNames.recording)] {
+            let localized = tool.localizedString(forKey: key, value: key, table: nil)
+            if !localized.isEmpty, !names[keyPath: keyPath].contains(localized) {
+                names[keyPath: keyPath].append(localized)
+            }
+        }
+        return names
     }
 }
 
@@ -61,46 +96,71 @@ public enum ScreenshotFinder {
     /// is called and whatever language the Mac is set to.
     public static let screenCaptureAttribute = "com.apple.metadata:kMDItemIsScreenCapture"
 
-    /// The formats the screenshot tool can be set to. Screen recordings are movies and
-    /// are left out.
+    /// The formats the screenshot tool can be set to.
     public static let imageExtensions: Set<String> = ["png", "jpg", "jpeg", "heic", "heif", "tiff", "tif", "gif", "bmp", "pdf"]
 
-    /// File-name prefixes of macOS screenshots in English, now and before macOS 11. They
-    /// are a fallback for files that lost the attribute, for example on the way through a
-    /// sync service.
-    public static let standardNamePrefixes = ["Screenshot", "Screen Shot"]
+    /// The formats macOS saves screen recordings in.
+    public static let recordingExtensions: Set<String> = ["mov", "mp4"]
 
-    /// Whether a file with this name counts as a screenshot.
+    public enum Kind: Equatable, Sendable {
+        case screenshot
+        case recording
+    }
+
+    /// What a file with this name is: a screenshot, a screen recording, or neither.
+    ///
+    /// The mark macOS puts on the file decides, whatever the file is called. The name is
+    /// the fallback for files that lost the mark, for example on the way through a sync
+    /// service.
     ///
     /// - Parameters:
     ///   - isMarkedAsScreenCapture: whether the file carries `screenCaptureAttribute`.
     ///   - namePrefix: the custom prefix from the screenshot settings, if one is set.
-    public static func isScreenshot(fileName: String, isMarkedAsScreenCapture: Bool, namePrefix: String?) -> Bool {
+    ///   - names: what macOS calls its screenshots and recordings.
+    public static func kind(
+        fileName: String,
+        isMarkedAsScreenCapture: Bool,
+        namePrefix: String?,
+        names: ScreenshotNames = .english
+    ) -> Kind? {
         // The screenshot tool writes to a hidden file first and renames it when done.
         guard !fileName.hasPrefix(".") else {
-            return false
+            return nil
         }
         let fileExtension = (fileName as NSString).pathExtension.lowercased()
-        guard imageExtensions.contains(fileExtension) else {
-            return false
+        let kind: Kind
+        var prefixes: [String]
+        if imageExtensions.contains(fileExtension) {
+            kind = .screenshot
+            prefixes = names.screenshot
+        } else if recordingExtensions.contains(fileExtension) {
+            kind = .recording
+            prefixes = names.recording
+        } else {
+            return nil
         }
         if isMarkedAsScreenCapture {
-            return true
+            return kind
         }
-        var prefixes = standardNamePrefixes
         if let namePrefix, !namePrefix.isEmpty {
             prefixes.append(namePrefix)
         }
-        return prefixes.contains { fileName.hasPrefix($0) }
+        return prefixes.contains { fileName.hasPrefix($0) } ? kind : nil
     }
 
-    /// The newest screenshots in a folder, newest first. Looks at the folder's own files
-    /// only, not into subfolders. Throws what the file system throws, notably a
-    /// permission error when macOS does not let the app read the folder.
+    /// Whether a file with this name counts as a still screenshot.
+    public static func isScreenshot(fileName: String, isMarkedAsScreenCapture: Bool, namePrefix: String?) -> Bool {
+        kind(fileName: fileName, isMarkedAsScreenCapture: isMarkedAsScreenCapture, namePrefix: namePrefix) == .screenshot
+    }
+
+    /// The newest screenshots and screen recordings in a folder, newest first. Looks at
+    /// the folder's own files only, not into subfolders. Throws what the file system
+    /// throws, notably a permission error when macOS does not let the app read the folder.
     public static func recent(
         in folder: URL,
         namePrefix: String?,
         limit: Int,
+        names: ScreenshotNames = .english,
         fileManager: FileManager = .default
     ) throws -> [Screenshot] {
         let keys: [URLResourceKey] = [.isRegularFileKey, .creationDateKey, .contentModificationDateKey]
@@ -109,11 +169,11 @@ public enum ScreenshotFinder {
         var screenshots: [Screenshot] = []
         for file in files {
             let name = file.lastPathComponent
-            // The cheap test on the name first; the attribute is only read for images.
-            guard isScreenshot(fileName: name, isMarkedAsScreenCapture: true, namePrefix: namePrefix),
+            // The cheap test on the name first; the mark is only read for pictures and movies.
+            guard kind(fileName: name, isMarkedAsScreenCapture: true, namePrefix: namePrefix, names: names) != nil,
                   let values = try? file.resourceValues(forKeys: Set(keys)),
                   values.isRegularFile == true,
-                  isScreenshot(fileName: name, isMarkedAsScreenCapture: isMarkedAsScreenCapture(file), namePrefix: namePrefix),
+                  kind(fileName: name, isMarkedAsScreenCapture: isMarkedAsScreenCapture(file), namePrefix: namePrefix, names: names) != nil,
                   let date = values.creationDate ?? values.contentModificationDate
             else {
                 continue

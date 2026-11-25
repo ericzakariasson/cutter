@@ -100,7 +100,7 @@ private final class SampleFolder {
         }
     }
 
-    @Test func recordingsAndOtherFilesDoNotCount() {
+    @Test func recordingsAreNotStillScreenshotsAndOtherFilesDoNotCount() {
         #expect(!counts("Screen Recording 2026-11-25 at 09.12.33.mov", marked: true))
         #expect(!counts("Screenshot notes.txt", marked: true))
         #expect(!counts("Screenshot", marked: true))
@@ -109,6 +109,55 @@ private final class SampleFolder {
     /// The screenshot tool writes to a hidden file first and renames it when done.
     @Test func aHiddenFileDoesNotCount() {
         #expect(!counts(".Screenshot 2026-11-25 at 09.12.33.png", marked: true))
+    }
+}
+
+@Suite struct ScreenRecordingTests {
+    private func kind(_ name: String, marked: Bool = false, prefix: String? = nil, names: ScreenshotNames = .english) -> ScreenshotFinder.Kind? {
+        ScreenshotFinder.kind(fileName: name, isMarkedAsScreenCapture: marked, namePrefix: prefix, names: names)
+    }
+
+    @Test func aMarkedMovieIsARecordingWhateverItIsCalled() {
+        #expect(kind("Skärminspelning 1.mov", marked: true) == .recording)
+        #expect(kind("renamed.mp4", marked: true) == .recording)
+    }
+
+    @Test func anUnmarkedMovieCountsByItsName() {
+        #expect(kind("Screen Recording 2026-11-25 at 09.12.33.mov") == .recording)
+        #expect(kind("Holiday.mov") == nil)
+        // A movie is not a screenshot just because it is named like one.
+        #expect(kind("Screenshot 1.mov") == nil)
+        #expect(kind("Screen Recording 1.png") == nil)
+    }
+
+    @Test func namesInTheMacsOwnLanguageCount() {
+        let swedish = ScreenshotNames(screenshot: ["Screenshot", "Skärmavbild"], recording: ["Screen Recording", "Skärminspelning"])
+        #expect(kind("Skärminspelning 2026-11-25 kl. 09.12.33.mov", names: swedish) == .recording)
+        #expect(kind("Skärmavbild 2026-11-25 kl. 09.12.33.png", names: swedish) == .screenshot)
+        #expect(kind("Skärminspelning 1.mov") == nil)
+    }
+
+    @Test func theSystemsNamesIncludeTheEnglishOnes() {
+        let names = ScreenshotNames.system()
+        #expect(names.screenshot.contains("Screenshot"))
+        #expect(names.recording.contains("Screen Recording"))
+    }
+
+    @Test func recordingsAreListedAmongTheScreenshotsByTime() throws {
+        let folder = try SampleFolder()
+        try folder.add("Screenshot A.png", minute: 1)
+        try folder.add("Screen Recording B.mov", minute: 2)
+        try folder.add("Screenshot C.png", minute: 3)
+        try folder.add("clip.mp4", minute: 4, marked: true)
+        try folder.add("Holiday.mov", minute: 5)
+
+        let found = try ScreenshotFinder.recent(in: folder.url, namePrefix: nil, limit: 10)
+        #expect(found.map(\.url.lastPathComponent) == ["clip.mp4", "Screenshot C.png", "Screen Recording B.mov", "Screenshot A.png"])
+        #expect(found.map(\.isRecording) == [true, false, true, false])
+    }
+
+    @Test func aHiddenRecordingBeingWrittenDoesNotCount() {
+        #expect(kind(".Screen Recording 1.mov", marked: true) == nil)
     }
 }
 
@@ -132,7 +181,7 @@ private final class SampleFolder {
     @Test func leavesOutEverythingThatIsNotAScreenshot() throws {
         let folder = try SampleFolder()
         try folder.add("Screenshot 1.png", minute: 1, marked: true)
-        try folder.add("Screen Recording 1.mov", minute: 2, marked: true)
+        try folder.add("Holiday video.mov", minute: 2)
         try folder.add("Notes.txt", minute: 3)
         try folder.add("Holiday.png", minute: 4)
         try folder.add(".Screenshot 2.png", minute: 5, marked: true)
