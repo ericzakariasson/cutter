@@ -63,10 +63,14 @@ final class ScreenshotBrowserModel: ObservableObject {
     }
 
     /// Reads the folder again. The newest screenshot is selected when the list arrives.
+    /// A list from an earlier look stays up meanwhile, so that reopening the panel does
+    /// not flash empty.
     func reload() {
         generation += 1
         let request = generation
-        state = .loading
+        if screenshots.isEmpty {
+            state = .loading
+        }
         let environment = self.environment
 
         environment.inBackground { [weak self] in

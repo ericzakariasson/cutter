@@ -133,6 +133,23 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
         #expect(model.screenshots.count == 2)
     }
 
+    @Test func reopeningKeepsTheEarlierListUpUntilTheNewOneArrives() {
+        let recorder = Recorder()
+        var answer = screenshots(2)
+        let model = makeModel(recorder, deferred: true) { answer }
+        model.reload()
+        recorder.runPending()
+
+        answer = screenshots(5)
+        model.reload()
+        #expect(model.state == .loaded)
+        #expect(model.screenshots.count == 2)
+
+        recorder.runPending()
+        #expect(model.screenshots.count == 5)
+        #expect(model.selection == 0)
+    }
+
     @Test func onlyTheLatestReadCounts() {
         let recorder = Recorder()
         var answer = screenshots(1)
@@ -280,6 +297,66 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
         #expect(command(KeyCode.returnKey, "\r", [.option]) == nil)
         // The panel's own shortcut, ⌃⌥S, must reach the global shortcut and close it.
         #expect(command(KeyCode.s, "s", [.control, .option]) == nil)
+    }
+}
+
+/// The panel is created here but never shown.
+@MainActor
+@Suite struct ScreenshotPanelTests {
+    private func makePanel(used: @escaping (NSEvent) -> Bool) -> KeyPanel {
+        let panel = KeyPanel(contentRect: .zero, styleMask: [.nonactivatingPanel, .titled], backing: .buffered, defer: true)
+        panel.onKeyDown = used
+        return panel
+    }
+
+    @Test func thePanelCanTakeTheKeyboardWithoutBeingAMainWindow() {
+        let panel = makePanel { _ in false }
+        #expect(panel.canBecomeKey)
+        #expect(!panel.canBecomeMain)
+        #expect(panel.styleMask.contains(.nonactivatingPanel))
+    }
+
+    /// ⌘Q pressed over the panel is meant for the app behind it. It must not reach
+    /// Cutter's own menu, where it would quit Cutter.
+    @Test func commandKeysThePanelDoesNotUseGoNoFurther() {
+        var seen: [UInt16] = []
+        let panel = makePanel { event in
+            seen.append(event.keyCode)
+            return false
+        }
+        #expect(panel.performKeyEquivalent(with: keyDown(12, "q", [.command])))
+        #expect(panel.performKeyEquivalent(with: keyDown(43, ",", [.command])))
+        #expect(seen == [12, 43])
+    }
+
+    @Test func thePanelsOwnCommandKeysReachIt() {
+        var commands: [ScreenshotBrowserModel.Command] = []
+        let panel = makePanel { event in
+            guard let command = ScreenshotBrowserModel.command(for: event) else {
+                return false
+            }
+            commands.append(command)
+            return true
+        }
+        #expect(panel.performKeyEquivalent(with: keyDown(8, "c", [.command])))
+        #expect(panel.performKeyEquivalent(with: keyDown(KeyCode.returnKey, "\r", [.command])))
+        #expect(commands == [.copy, .reveal])
+    }
+
+    @Test func escapeWithNoTakerClosesThePanel() {
+        var cancels = 0
+        let panel = makePanel { _ in false }
+        panel.onCancel = { cancels += 1 }
+        panel.cancelOperation(nil)
+        #expect(cancels == 1)
+    }
+
+    @Test func theControllerReadsNothingUntilAskedToShow() {
+        let controller = ScreenshotPanelController()
+        #expect(!controller.isShown)
+        #expect(controller.model.state == .loading)
+        #expect(controller.model.screenshots.isEmpty)
+        #expect(controller.model.folder == nil)
     }
 }
 

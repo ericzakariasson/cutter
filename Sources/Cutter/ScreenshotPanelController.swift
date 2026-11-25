@@ -8,6 +8,7 @@ import SwiftUI
 final class KeyPanel: NSPanel {
     /// Gets every key press first; returns whether it used it.
     var onKeyDown: ((NSEvent) -> Bool)?
+    var onCancel: (() -> Void)?
 
     override var canBecomeKey: Bool { true }
     override var canBecomeMain: Bool { false }
@@ -19,9 +20,19 @@ final class KeyPanel: NSPanel {
         super.sendEvent(event)
     }
 
+    /// Key presses with ⌘ come here before anything else sees them. The panel uses its
+    /// own and swallows the rest. Otherwise they would go on to Cutter's menu, and ⌘Q,
+    /// meant for the app the user is looking at, would quit Cutter.
+    override func performKeyEquivalent(with event: NSEvent) -> Bool {
+        if event.type == .keyDown {
+            _ = onKeyDown?(event)
+        }
+        return true
+    }
+
     /// Escape arrives here as well when a view declines it.
     override func cancelOperation(_ sender: Any?) {
-        close()
+        onCancel?()
     }
 }
 
@@ -143,6 +154,9 @@ final class ScreenshotPanelController: NSObject, NSWindowDelegate {
         // On whichever Space is in front, and over full-screen apps.
         panel.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary, .transient]
         panel.delegate = self
+        panel.onCancel = { [weak self] in
+            self?.close()
+        }
         panel.onKeyDown = { [weak self] event in
             guard let self, let command = ScreenshotBrowserModel.command(for: event) else {
                 return false
