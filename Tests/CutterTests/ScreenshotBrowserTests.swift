@@ -887,6 +887,9 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
         try ScreenshotFile.replace(file, with: edited)
 
         #expect(try pixelSize(of: file) == (20, 10))
+        #expect(ScreenshotFile.pixelSize(of: file)?.width == 20)
+        #expect(ScreenshotFile.pixelSize(of: file)?.height == 10)
+        #expect(ScreenshotFile.pixelSize(of: file.appendingPathExtension("gone")) == nil)
         #expect(try Data(contentsOf: file) == edited.data)
         #expect(ScreenshotFinder.isMarkedAsScreenCapture(file))
         #expect(try file.resourceValues(forKeys: [.creationDateKey]).creationDate == taken)

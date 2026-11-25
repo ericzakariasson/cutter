@@ -163,14 +163,25 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
             return
         }
         do {
+            // Sizes go in the log, to show a crop and to catch a picture coming back
+            // smaller than it went in. Nothing else about the picture does.
+            let before = ScreenshotFile.pixelSize(of: file)
             try ScreenshotFile.replace(file, with: picture)
-            NSLog("Cutter: markup: saved over the original (%@)", picture.typeIdentifier)
+            let after = ScreenshotFile.pixelSize(of: file)
+            NSLog(
+                "Cutter: markup: saved over the original (%@, %@ pixels, was %@)",
+                picture.typeIdentifier, after.map(Self.describe) ?? "unknown", before.map(Self.describe) ?? "unknown"
+            )
             onSaved?(file)
             closeWindow()
         } catch {
             NSLog("Cutter: markup: could not save: %@", (error as NSError).domain)
             imageView?.image = NSImage(contentsOf: file)
         }
+    }
+
+    private static func describe(_ size: (width: Int, height: Int)) -> String {
+        "\(size.width)x\(size.height)"
     }
 
     // MARK: - The window
@@ -380,6 +391,18 @@ enum ScreenshotFile {
         if let created {
             try? fileManager.setAttributes([.creationDate: created], ofItemAtPath: file.path)
         }
+    }
+
+    /// Width and height in pixels, read from the file's header.
+    static func pixelSize(of file: URL) -> (width: Int, height: Int)? {
+        guard let source = CGImageSourceCreateWithURL(file as CFURL, nil),
+              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let width = properties[kCGImagePropertyPixelWidth] as? Int,
+              let height = properties[kCGImagePropertyPixelHeight] as? Int
+        else {
+            return nil
+        }
+        return (width, height)
     }
 
     /// The picture's bytes in the format the file's extension names, converted if the
