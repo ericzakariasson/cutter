@@ -226,6 +226,13 @@ final class ScreenshotPanelController: NSObject, NSWindowDelegate {
     // MARK: - Reasons to close
 
     func windowDidResignKey(_ notification: Notification) {
+        if isOpen, panel != nil {
+            // What has the keyboard now, for the log: the kind of window if it is one of
+            // Cutter's, never a title, and nothing about other apps.
+            let app = NSApplication.shared
+            let taker = app.keyWindow.map { String(describing: type(of: $0)) } ?? "none of Cutter's windows"
+            NSLog("Cutter: screenshots panel lost the keyboard to %@ (Cutter in front: %@)", taker, app.isActive ? "yes" : "no")
+        }
         close(.lostKeyboard)
     }
 

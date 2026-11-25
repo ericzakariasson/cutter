@@ -16,6 +16,9 @@ import UniformTypeIdentifiers
 /// what happens to the file with what the editor returns.
 final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWindowDelegate {
     static let serviceName = NSSharingService.Name("com.apple.MarkupUI.Markup")
+    /// How long the picture window waits for the editor to leave the screen after Done
+    /// or Cancel before it closes regardless.
+    static let editorPatience: TimeInterval = 1.5
 
     /// Called with the file after an edited picture has replaced it.
     var onSaved: ((URL) -> Void)?
@@ -23,12 +26,24 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
     /// going back to where the edit began. Not called when the picture went to Preview.
     var onClosed: ((URL) -> Void)?
 
-    private var window: NSWindow?
+    /// The windows the editor still has on screen. The editor shows itself in windows
+    /// that belong to Cutter's process; by default these are the ones that came up after
+    /// it was asked for. Tests put their own answer here.
+    lazy var editorWindows: () -> [NSWindow] = { [weak self] in
+        self?.windowsThatCameWithTheEditor() ?? []
+    }
+    var now: () -> Date = { Date() }
+
+    private var window: MarkupPictureWindow?
     private var imageView: NSImageView?
     private var file: URL?
     private var service: NSSharingService?
     /// Whether closing the window leads back to where the edit began.
     private var goesBackOnClose = true
+    /// Cutter's windows that were on screen before the editor was asked for.
+    private var windowsBeforeTheEditor: Set<ObjectIdentifier> = []
+    private var endingBegan: Date?
+    private var endingTimer: Timer?
 
     static var isAvailable: Bool {
         NSSharingService(named: serviceName) != nil
@@ -57,7 +72,7 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
 
     /// Builds the window for a picture and remembers what is being edited, without
     /// showing anything.
-    func begin(with file: URL, showing image: NSImage) -> NSWindow {
+    func begin(with file: URL, showing image: NSImage) -> MarkupPictureWindow {
         // A window still up from an earlier edit gives way to this one.
         closeWindow(goingBack: false)
         self.file = file
@@ -89,6 +104,7 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
         }
         service.delegate = self
         self.service = service
+        windowsBeforeTheEditor = Set(NSApplication.shared.windows.filter(\.isVisible).map(ObjectIdentifier.init))
         // The editor is asked whatever it answers here; the answer is for the log.
         NSLog(
             "Cutter: markup: editor asked for (says it can: %@, Cutter in front: %@, window has the keyboard: %@)",
@@ -150,7 +166,7 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
         let error = error as NSError
         if error.domain == NSCocoaErrorDomain, error.code == NSUserCancelledError {
             NSLog("Cutter: markup: cancelled; the file is unchanged")
-            closeWindow()
+            endWhenTheEditorHasGone()
         } else {
             // The window stays, with its buttons, so the picture can still be edited.
             NSLog("Cutter: markup: the editor failed (%@ %ld)", error.domain, error.code)
@@ -173,7 +189,12 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
                 picture.typeIdentifier, after.map(Self.describe) ?? "unknown", before.map(Self.describe) ?? "unknown"
             )
             onSaved?(file)
-            closeWindow()
+            // Should the picture window show once more behind the leaving editor, it
+            // shows what was saved.
+            if let data = try? Data(contentsOf: file), let saved = NSImage(data: data) {
+                imageView?.image = saved
+            }
+            endWhenTheEditorHasGone()
         } catch {
             NSLog("Cutter: markup: could not save: %@", (error as NSError).domain)
             imageView?.image = NSImage(contentsOf: file)
@@ -184,10 +205,78 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
         "\(size.width)x\(size.height)"
     }
 
+    // MARK: - After Done or Cancel
+
+    /// The editing is over, but the editor may still be on screen, on its way out. The
+    /// picture window stays until the editor has gone, and only then closes and leads
+    /// back to the screenshots panel.
+    ///
+    /// Closing at once is what an earlier version did: the panel came back while the
+    /// editor was still leaving, and lost the keyboard a third of a second later.
+    func endWhenTheEditorHasGone() {
+        guard window != nil, endingBegan == nil else {
+            return
+        }
+        endingBegan = now()
+        let stillUp = editorWindows()
+        // Kinds of window only. These are the editor's; their titles are not Cutter's to log.
+        NSLog(
+            "Cutter: markup: editing over; the editor has %ld window(s) up: %@",
+            stillUp.count, stillUp.map { String(describing: type(of: $0)) }.joined(separator: ", ")
+        )
+        checkWhetherTheEditorHasGone()
+        guard endingBegan != nil else {
+            return
+        }
+        let timer = Timer(timeInterval: 0.05, repeats: true) { [weak self] timer in
+            guard let self else {
+                timer.invalidate()
+                return
+            }
+            self.checkWhetherTheEditorHasGone()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        endingTimer = timer
+    }
+
+    func checkWhetherTheEditorHasGone() {
+        guard let began = endingBegan, window != nil else {
+            stopWaitingForTheEditor()
+            return
+        }
+        let waited = now().timeIntervalSince(began)
+        let gone = editorWindows().isEmpty
+        guard gone || waited >= Self.editorPatience else {
+            return
+        }
+        if gone {
+            NSLog("Cutter: markup: the editor was gone after %ld ms", Int((waited * 1000).rounded()))
+        } else {
+            NSLog("Cutter: markup: the editor is still up after %ld ms; closing the picture window all the same", Int((waited * 1000).rounded()))
+        }
+        stopWaitingForTheEditor()
+        closeWindow()
+    }
+
+    private func stopWaitingForTheEditor() {
+        endingTimer?.invalidate()
+        endingTimer = nil
+        endingBegan = nil
+    }
+
+    private func windowsThatCameWithTheEditor() -> [NSWindow] {
+        NSApplication.shared.windows.filter {
+            $0.isVisible && $0 !== window && !($0 is KeyPanel) && !windowsBeforeTheEditor.contains(ObjectIdentifier($0))
+        }
+    }
+
     // MARK: - The window
 
     func windowWillClose(_ notification: Notification) {
         let ended = goesBackOnClose ? file : nil
+        stopWaitingForTheEditor()
+        // Whatever still holds this window, the editor for one, cannot bring it back.
+        window?.retire()
         window = nil
         imageView = nil
         file = nil
@@ -206,9 +295,10 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
         if let file {
             onClosed?(file)
         }
-        let hasAWindow = NSApp.windows.contains { $0.isVisible && $0.canBecomeKey }
-        if NSApp.isActive, !hasAWindow {
-            NSApp.hide(nil)
+        let app = NSApplication.shared
+        let hasAWindow = app.windows.contains { $0.isVisible && $0.canBecomeKey }
+        if app.isActive, !hasAWindow {
+            app.hide(nil)
         }
     }
 
@@ -217,6 +307,7 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
             return
         }
         goesBackOnClose = goingBack
+        window.retire()
         window.close()
     }
 
@@ -236,7 +327,7 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
     }
 
     /// Builds the window without showing it.
-    func makeWindow(for image: NSImage) -> NSWindow {
+    func makeWindow(for image: NSImage) -> MarkupPictureWindow {
         let visible = (NSScreen.main ?? NSScreen.screens.first)?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1280, height: 800)
         let pictureSize = Self.windowPictureSize(for: image.size, in: visible.size)
 
@@ -276,7 +367,7 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
             buttons.bottomAnchor.constraint(equalTo: content.bottomAnchor, constant: -14),
         ])
 
-        let window = NSWindow(
+        let window = MarkupPictureWindow(
             contentRect: NSRect(x: 0, y: 0, width: pictureSize.width + 32, height: pictureSize.height + 76),
             styleMask: [.titled, .closable, .resizable],
             backing: .buffered,
@@ -303,6 +394,67 @@ final class ScreenshotMarkupController: NSObject, NSSharingServiceDelegate, NSWi
             width: max((picture.width * scale).rounded(), 388),
             height: max((picture.height * scale).rounded(), 224)
         )
+    }
+}
+
+/// The window a screenshot is shown in while it is marked up.
+///
+/// The Markup editor is given this window to work on and keeps hold of it. Once the
+/// window has been closed it is retired: asked to come forward or to take the keyboard
+/// again, by the editor finishing up or by anything else, it stays away. Otherwise a
+/// closed window could come back with nothing behind it, and take the keyboard from the
+/// screenshots panel that has replaced it.
+final class MarkupPictureWindow: NSWindow {
+    private(set) var isRetired = false
+    /// How often the window was asked back after retiring. For the log and for tests.
+    private(set) var timesAskedBack = 0
+
+    func retire() {
+        isRetired = true
+    }
+
+    override var canBecomeKey: Bool {
+        !isRetired && super.canBecomeKey
+    }
+
+    override var canBecomeMain: Bool {
+        !isRetired && super.canBecomeMain
+    }
+
+    override func makeKeyAndOrderFront(_ sender: Any?) {
+        if staysAway() { return }
+        super.makeKeyAndOrderFront(sender)
+    }
+
+    override func orderFront(_ sender: Any?) {
+        if staysAway() { return }
+        super.orderFront(sender)
+    }
+
+    override func orderFrontRegardless() {
+        if staysAway() { return }
+        super.orderFrontRegardless()
+    }
+
+    override func makeKey() {
+        if staysAway() { return }
+        super.makeKey()
+    }
+
+    override func order(_ place: NSWindow.OrderingMode, relativeTo otherWin: Int) {
+        if place != .out, staysAway() { return }
+        super.order(place, relativeTo: otherWin)
+    }
+
+    private func staysAway() -> Bool {
+        guard isRetired else {
+            return false
+        }
+        timesAskedBack += 1
+        if timesAskedBack == 1 {
+            NSLog("Cutter: markup: the closed picture window was asked to come back; it stays closed")
+        }
+        return true
     }
 }
 

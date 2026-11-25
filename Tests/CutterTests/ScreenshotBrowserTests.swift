@@ -1145,6 +1145,131 @@ private func keyDown(_ keyCode: UInt16, _ characters: String = "", _ modifiers: 
         #expect(ended == [other])
     }
 
+    // MARK: After Done or Cancel: wait for the editor, then close for good
+
+    /// A controller whose editor is the test's: up while `editorIsUp`, at a time the
+    /// test sets.
+    private final class Editor {
+        var isUp = true
+        var time = Date(timeIntervalSinceReferenceDate: 1_000)
+        let itsWindow = NSWindow()
+    }
+
+    private func controller(with editor: Editor, _ ended: @escaping (URL) -> Void) -> ScreenshotMarkupController {
+        let controller = controller(ended)
+        controller.editorWindows = { editor.isUp ? [editor.itsWindow] : [] }
+        controller.now = { editor.time }
+        return controller
+    }
+
+    /// The bug this guards against: the panel came back while the editor was still on
+    /// its way out, and lost the keyboard a moment later.
+    @Test func afterDoneThePictureWindowWaitsForTheEditorToGo() async {
+        var ended: [URL] = []
+        let editor = Editor()
+        let controller = controller(with: editor) { ended.append($0) }
+        let window = controller.begin(with: file, showing: picture)
+
+        controller.endWhenTheEditorHasGone()
+        editor.time += 0.3
+        controller.checkWhetherTheEditorHasGone()
+        await nextTurn()
+        #expect(ended.isEmpty)
+        #expect(!window.isRetired)
+
+        editor.isUp = false
+        controller.checkWhetherTheEditorHasGone()
+        await nextTurn()
+        #expect(ended == [file])
+        #expect(window.isRetired)
+
+        // Over is over.
+        controller.checkWhetherTheEditorHasGone()
+        await nextTurn()
+        #expect(ended == [file])
+    }
+
+    @Test func withNoEditorLeftOnScreenTheWindowClosesAtOnce() async {
+        var ended: [URL] = []
+        let editor = Editor()
+        editor.isUp = false
+        let controller = controller(with: editor) { ended.append($0) }
+        let window = controller.begin(with: file, showing: picture)
+
+        controller.endWhenTheEditorHasGone()
+        await nextTurn()
+        #expect(ended == [file])
+        #expect(window.isRetired)
+    }
+
+    @Test func anEditorThatNeverGoesIsNotWaitedForForever() async {
+        var ended: [URL] = []
+        let editor = Editor()
+        let controller = controller(with: editor) { ended.append($0) }
+        _ = controller.begin(with: file, showing: picture)
+
+        controller.endWhenTheEditorHasGone()
+        editor.time += ScreenshotMarkupController.editorPatience - 0.1
+        controller.checkWhetherTheEditorHasGone()
+        await nextTurn()
+        #expect(ended.isEmpty)
+
+        editor.time += 0.2
+        controller.checkWhetherTheEditorHasGone()
+        await nextTurn()
+        #expect(ended == [file])
+    }
+
+    @Test func closingTheWindowByHandWhileWaitingEndsTheWait() async {
+        var ended: [URL] = []
+        let editor = Editor()
+        let controller = controller(with: editor) { ended.append($0) }
+        let window = controller.begin(with: file, showing: picture)
+
+        controller.endWhenTheEditorHasGone()
+        window.close()
+        await nextTurn()
+        #expect(ended == [file])
+
+        editor.isUp = false
+        controller.checkWhetherTheEditorHasGone()
+        await nextTurn()
+        #expect(ended == [file])
+    }
+
+    /// The editor keeps hold of the window it worked on. Asked to come forward or take
+    /// the keyboard after it was closed, the window stays away, so it cannot take the
+    /// keyboard from the panel that replaced it. Nothing is shown here: a retired window
+    /// refuses, and the window is asked only after retiring.
+    @Test func aClosedPictureWindowCannotComeBack() {
+        let controller = controller { _ in }
+        let window = controller.begin(with: file, showing: picture)
+        #expect(window.canBecomeKey)
+        #expect(!window.isRetired)
+
+        window.close()
+        #expect(window.isRetired)
+        #expect(!window.canBecomeKey)
+        #expect(!window.canBecomeMain)
+
+        window.makeKeyAndOrderFront(nil)
+        window.orderFront(nil)
+        window.orderFrontRegardless()
+        window.makeKey()
+        window.order(.above, relativeTo: 0)
+        #expect(!window.isVisible)
+        #expect(!window.isKeyWindow)
+        #expect(window.timesAskedBack == 5)
+    }
+
+    @Test func aWindowReplacedByANewEditIsRetiredToo() {
+        let controller = controller { _ in }
+        let first = controller.begin(with: file, showing: picture)
+        let second = controller.begin(with: URL(fileURLWithPath: "/samples/Sample 2.png"), showing: picture)
+        #expect(first.isRetired)
+        #expect(!second.isRetired)
+    }
+
     @Test func afterTheWindowTheFileIsHandedOnOnlyWhenThereIsOne() {
         var ended: [URL] = []
         let controller = controller { ended.append($0) }
