@@ -1,6 +1,6 @@
 # Cutter
 
-A macOS menu bar app that moves and resizes the focused window with global keyboard shortcuts.
+A macOS menu bar app that moves and resizes the focused window with global keyboard shortcuts, and shows your most recent screenshots on another.
 
 ![Animation of Cutter's default shortcuts. On two displays, one above the other, a window takes the left half of the lower display with ⌃⌥←, the right half with ⌃⌥→ and the whole visible area with ⌃⌥↩, then moves to the display above with ⌃⌥↑ and back down with ⌃⌥↓.](docs/demo.gif)
 
@@ -16,6 +16,7 @@ The animation is drawn by `./scripts/make-demo.sh` from the app's own placement 
 | Top Half, Bottom Half | none |
 | Top Left, Top Right, Bottom Left, Bottom Right | none |
 | Toggle Full Screen (native) | none |
+| Show Recent Screenshots | ⌃⌥S |
 
 Every shortcut can be changed or removed in the settings window. With several displays, a placement applies to the display the window is on.
 
@@ -27,6 +28,26 @@ Move to Previous Display and Move to Next Display send the focused window to ano
 
 - **Order.** The displays are ordered as they are arranged in System Settings > Displays: rows from top to bottom, and left to right within a row. With one display above another, ⌃⌥↑ goes to the upper one and ⌃⌥↓ to the lower one. With displays side by side, ⌃⌥↑ goes left and ⌃⌥↓ goes right. With two displays, either shortcut swaps.
 - **Size and position.** The window keeps its place within the visible area: a maximized window stays maximized, a left half stays a left half, and any other window covers the same fraction of the new display at the same relative position, so it grows or shrinks with the display. It always ends up fully inside the visible area.
+
+## Recent screenshots
+
+⌃⌥S, or Show Recent Screenshots in the menu, opens a panel with your newest screenshots as thumbnails, newest first. The same shortcut closes it again, as do Escape and a click anywhere else.
+
+| In the panel | Keyboard | Mouse |
+| --- | --- | --- |
+| Choose a screenshot | Arrow keys, Home, End | Click |
+| Open it | ↩ | Double-click |
+| Copy it to the clipboard | ⌘C | Right-click > Copy |
+| Show it in Finder | ⌘↩ or ⌘R | Right-click > Show in Finder |
+| Use it in another app | | Drag the thumbnail there |
+
+Opening, copying and showing in Finder close the panel, and the app you were in has the keyboard again. A copied screenshot pastes as a picture where pictures go and as a file in Finder.
+
+- **Where it looks.** In the folder macOS saves screenshots to: the one chosen under Options in the Screenshot toolbar (⇧⌘5), or the Desktop when none was chosen.
+- **What counts as a screenshot.** A picture that macOS marked as a screenshot when it saved it, whatever the file is called now, or one whose name starts with "Screenshot" or with your own screenshot name prefix. Screen recordings are not shown. Screenshots moved out of the folder are not found.
+- **How many.** The newest 30.
+- **When it reads the folder.** Each time the panel opens, and at no other time, so the panel is up to date whenever you look.
+- **Permission.** If the folder is the Desktop, Documents or Downloads, macOS asks once, the first time the panel opens, whether Cutter may access files there. Cutter reads the screenshots to show them and changes nothing. Without the permission the panel says so; it can be given later under System Settings > Privacy & Security > Files and Folders. This feature does not need Accessibility access.
 
 ## Shortcuts and other apps
 
@@ -52,7 +73,7 @@ Run the tests with `./scripts/test.sh`.
 
 ## First run
 
-Cutter needs Accessibility access to move other apps' windows. On first launch it opens its settings window and explains this. Click **Open Accessibility Settings…**, turn on Cutter in the list, and the shortcuts start working without a relaunch. Until then Cutter registers no shortcuts, so it does not swallow key presses it cannot act on.
+Cutter needs Accessibility access to move other apps' windows. On first launch it opens its settings window and explains this. Click **Open Accessibility Settings…**, turn on Cutter in the list, and the shortcuts start working without a relaunch. Until then Cutter registers none of its window shortcuts, so it does not swallow key presses it cannot act on. Showing the recent screenshots works without it.
 
 Cutter has no Dock icon. Open its settings from the menu bar icon, or by opening the app again while it runs.
 
@@ -89,8 +110,8 @@ Add a case to `WindowAction` in `Sources/CutterCore/WindowAction.swift` with a t
 
 ## Layout
 
-- `Sources/CutterCore`: actions, frame math, the shortcut model and its storage. No AppKit; covered by unit tests.
-- `Sources/Cutter`: the app. Global shortcuts (`HotKeyCenter`), window control through the Accessibility API (`WindowManager`), the permission flow, the menu and the settings window.
+- `Sources/CutterCore`: actions, frame math, the shortcut model and its storage, and the rules for finding screenshots. No AppKit; covered by unit tests.
+- `Sources/Cutter`: the app. Global shortcuts (`HotKeyCenter`), window control through the Accessibility API (`WindowManager`), the permission flow, the menu, the settings window and the screenshots panel (`ScreenshotPanelController`).
 - `Sources/CutterDemo`: draws the animation above, `docs/demo.gif`, off-screen. Run `./scripts/make-demo.sh` to regenerate it after changing the placements or the default shortcuts; add `--mp4 <file>` for an H.264 movie as well.
 - `scripts`: building, signing and testing. `make-icon.swift` draws `Support/AppIcon.icns`.
 

@@ -134,7 +134,7 @@ private struct AccessibilityRequestView: View {
             VStack(alignment: .leading, spacing: 8) {
                 Text("Cutter needs Accessibility access")
                     .font(.headline)
-                Text("macOS lets an app move and resize other apps' windows only when you allow it under Privacy & Security > Accessibility. Cutter uses the access for that and nothing else. Until then its shortcuts are off.")
+                Text("macOS lets an app move and resize other apps' windows only when you allow it under Privacy & Security > Accessibility. Cutter uses the access for that and nothing else. Until then its window shortcuts are off.")
                     .fixedSize(horizontal: false, vertical: true)
                 Text("Turn on Cutter in the list that opens. The shortcuts start working right away, without a relaunch.")
                     .foregroundStyle(.secondary)
