@@ -27,6 +27,8 @@ final class AppModel: ObservableObject {
     var showSettings: (() -> Void)?
     /// Set by the app delegate; shows or hides the recent-screenshots panel.
     var toggleRecentScreenshots: (() -> Void)?
+    /// Set by the app delegate; opens the emoji picker in the app in front.
+    var showEmojiAndSymbols: (() -> Void)?
 
     private let store: ShortcutStore
     private let hotKeys: HotKeyRegistering
@@ -73,6 +75,10 @@ final class AppModel: ObservableObject {
     func perform(_ action: WindowAction) {
         if action.behavior == .showRecentScreenshots {
             toggleRecentScreenshots?()
+            return
+        }
+        if action.behavior == .showEmojiAndSymbols {
+            showEmojiAndSymbols?()
             return
         }
         do {

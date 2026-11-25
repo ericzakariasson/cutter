@@ -24,15 +24,39 @@ private let commandOptionF = KeyCombo(keyCode: 3, modifiers: [.command, .option]
         #expect(configuration.shortcut(for: .nextDisplay) == controlOptionDown)
         #expect(configuration.shortcut(for: .recentScreenshots) == KeyCombo(keyCode: KeyCode.s, modifiers: controlOption))
 
+        #expect(configuration.shortcut(for: .emojiAndSymbols) == KeyCombo(keyCode: KeyCode.e, modifiers: [.control, .shift]))
+
         let assigned = configuration.assignments.map(\.action)
-        #expect(assigned == [.maximize, .leftHalf, .rightHalf, .previousDisplay, .nextDisplay, .recentScreenshots])
+        #expect(assigned == [.maximize, .leftHalf, .rightHalf, .previousDisplay, .nextDisplay, .recentScreenshots, .emojiAndSymbols])
         #expect(configuration.isDefault)
     }
 
-    @Test func everyDefaultUsesControlOption() {
-        for (_, combo) in ShortcutConfiguration.defaultShortcuts {
-            #expect(combo.modifiers == controlOption)
+    /// The emoji picker is on the keys it was asked for; everything else is on Control-Option.
+    @Test func everyDefaultUsesControlOptionExceptTheEmojiPicker() {
+        for (action, combo) in ShortcutConfiguration.defaultShortcuts {
+            #expect(combo.modifiers == (action == .emojiAndSymbols ? [.control, .shift] : controlOption))
         }
+    }
+
+    /// The emoji shortcut arrives as a default in a later version too. Someone who has
+    /// already put ⌃⇧E on another action keeps it there.
+    @Test func aSavedControlShiftEKeepsItsActionWhenTheEmojiDefaultArrives() throws {
+        let json = #"{"topRight":{"combo":{"keyCode":14,"modifiers":5}}}"#
+        let decoded = try JSONDecoder().decode(ShortcutConfiguration.self, from: Data(json.utf8))
+        #expect(decoded.shortcut(for: .topRight) == KeyCombo(keyCode: KeyCode.e, modifiers: [.control, .shift]))
+        #expect(decoded.shortcut(for: .emojiAndSymbols) == nil)
+        // Another choice of his own for the picker is kept as well.
+        var configuration = decoded
+        configuration.setShortcut(KeyCombo(keyCode: KeyCode.e, modifiers: [.control, .option]), for: .emojiAndSymbols)
+        #expect(configuration.shortcut(for: .emojiAndSymbols) == KeyCombo(keyCode: KeyCode.e, modifiers: [.control, .option]))
+        #expect(configuration.shortcut(for: .topRight) == KeyCombo(keyCode: KeyCode.e, modifiers: [.control, .shift]))
+    }
+
+    @Test func theEmojiPickerIsCalledWhatMacOSCallsIt() {
+        #expect(WindowAction.emojiAndSymbols.title == "Show Emoji & Symbols")
+        #expect(WindowAction.emojiAndSymbols.rawValue == "emojiAndSymbols")
+        #expect(WindowAction.allCases.last == .emojiAndSymbols)
+        #expect(!WindowAction.emojiAndSymbols.movesBetweenDisplays)
     }
 
     /// The screenshots shortcut arrived as a default in a later version. Someone who had
@@ -44,9 +68,11 @@ private let commandOptionF = KeyCombo(keyCode: 3, modifiers: [.command, .option]
         #expect(decoded.shortcut(for: .recentScreenshots) == nil)
     }
 
-    @Test func onlyShowingTheScreenshotsNeedsNoAccessibilityAccess() {
+    /// The screenshots panel moves no window. The emoji picker has a way that needs no
+    /// access, so its shortcut stays live without it too.
+    @Test func onlyWhatMovesAWindowNeedsAccessibilityAccess() {
         for action in WindowAction.allCases {
-            #expect(action.needsAccessibility == (action != .recentScreenshots))
+            #expect(action.needsAccessibility == (action != .recentScreenshots && action != .emojiAndSymbols))
         }
     }
 

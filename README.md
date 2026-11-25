@@ -1,6 +1,6 @@
 # Cutter
 
-A macOS menu bar app that moves and resizes the focused window with global keyboard shortcuts, and shows your most recent screenshots on another.
+A macOS menu bar app that moves and resizes the focused window with global keyboard shortcuts, shows your most recent screenshots on another, and opens the emoji picker on a third.
 
 ![Animation of Cutter's default shortcuts. On two displays, one above the other, a window takes the left half of the lower display with ⌃⌥←, the right half with ⌃⌥→ and the whole visible area with ⌃⌥↩, then moves to the display above with ⌃⌥↑ and back down with ⌃⌥↓.](docs/demo.gif)
 
@@ -17,6 +17,7 @@ The animation is drawn by `./scripts/make-demo.sh` from the app's own placement 
 | Top Left, Top Right, Bottom Left, Bottom Right | none |
 | Toggle Full Screen (native) | none |
 | Show Recent Screenshots | ⌃⌥S |
+| Show Emoji & Symbols (the macOS emoji picker, in the app you are typing in) | ⌃⇧E |
 
 Every shortcut can be changed or removed in the settings window. With several displays, a placement applies to the display the window is on.
 
@@ -55,12 +56,23 @@ The panel has the keyboard while it is open and gives it back when it closes. It
 - **A screenshot you have just taken.** With the corner preview on, macOS saves a screenshot only when the preview has gone, about five seconds after you took it. Until then there is no file for Cutter to show. If the panel is open at that moment, the screenshot appears at the top by itself. To have screenshots saved at once, switch off Show Floating Thumbnail under Options in the Screenshot toolbar (⇧⌘5).
 - **Permission.** If the folder is the Desktop, Documents or Downloads, macOS asks once, the first time the panel opens, whether Cutter may access files there. The panel closes while the question is up; open it again after answering. Cutter reads the screenshots to show them, and changes a file only when you press Done in Markup. Without the permission the panel says so; it can be given later under System Settings > Privacy & Security > Files and Folders. This feature does not need Accessibility access.
 
+## Emoji picker
+
+⌃⇧E, or Show Emoji & Symbols in the menu, opens the macOS emoji picker in the app in front. What you pick is typed where your insertion point is in that app, as if you had chosen Edit > Emoji & Symbols there.
+
+- **How it opens.** Cutter presses the app's own Emoji & Symbols menu item, which it finds by the mark macOS puts on that item in every app. It does not depend on the keys macOS has given the picker on your Mac (⌃⌘Space on some, the Globe key and E on others) or on the language of the menus.
+- **Apps without that menu item.** A few apps have none. There Cutter asks macOS for the picker the way the Input menu's Show Emoji & Symbols does. It may come up as the larger Character Viewer window instead of the small picker at the insertion point.
+- **Last resort.** If neither works, Cutter sends ⌃⌘Space.
+- **Where it does nothing useful.** With no text field active, the picker has nowhere to type. In an app that offers the picker in neither way, nothing opens; Cutter's log says which way was tried.
+- **Permission.** Pressing another app's menu item uses the Accessibility access Cutter already has. Without that access the shortcut still works, through the Input menu's way.
+
 ## Shortcuts and other apps
 
 A shortcut belongs to Cutter while Cutter runs: the frontmost app no longer receives it. Control+Option with Return or an arrow is free in macOS and in most apps, with two exceptions worth knowing:
 
 - VoiceOver uses Control+Option as its modifier, and Control+Option+arrows move its cursor. If you use VoiceOver, pick other shortcuts.
 - Rectangle and Magnet use the same combinations by default. Run only one of them with these shortcuts.
+- ⌃⇧E is the emoji picker's. An app that uses ⌃⇧E itself no longer receives it while Cutter runs; give the picker other keys in Settings if that is in your way.
 
 macOS does not tell an app that another app has registered the same shortcut, so Cutter cannot warn about such a clash. If a shortcut does nothing or does the wrong thing, look for another app using it.
 
@@ -79,7 +91,7 @@ Run the tests with `./scripts/test.sh`.
 
 ## First run
 
-Cutter needs Accessibility access to move other apps' windows. On first launch it opens its settings window and explains this. Click **Open Accessibility Settings…**, turn on Cutter in the list, and the shortcuts start working without a relaunch. Until then Cutter registers none of its window shortcuts, so it does not swallow key presses it cannot act on. Showing the recent screenshots works without it.
+Cutter needs Accessibility access to move other apps' windows. On first launch it opens its settings window and explains this. Click **Open Accessibility Settings…**, turn on Cutter in the list, and the shortcuts start working without a relaunch. Until then Cutter registers none of its window shortcuts, so it does not swallow key presses it cannot act on. Showing the recent screenshots and opening the emoji picker work without it.
 
 Cutter has no Dock icon. Open its settings from the menu bar icon, or by opening the app again while it runs.
 
@@ -117,7 +129,7 @@ Add a case to `WindowAction` in `Sources/CutterCore/WindowAction.swift` with a t
 ## Layout
 
 - `Sources/CutterCore`: actions, frame math, the shortcut model and its storage, and the rules for finding screenshots. No AppKit; covered by unit tests.
-- `Sources/Cutter`: the app. Global shortcuts (`HotKeyCenter`), window control through the Accessibility API (`WindowManager`), the permission flow, the menu, the settings window and the screenshots panel (`ScreenshotPanelController`).
+- `Sources/Cutter`: the app. Global shortcuts (`HotKeyCenter`), window control through the Accessibility API (`WindowManager`), the permission flow, the menu, the settings window, the screenshots panel (`ScreenshotPanelController`) and the emoji picker (`EmojiPicker`).
 - `Sources/CutterDemo`: draws the animation above, `docs/demo.gif`, off-screen. Run `./scripts/make-demo.sh` to regenerate it after changing the placements or the default shortcuts; add `--mp4 <file>` for an H.264 movie as well.
 - `scripts`: building, signing and testing. `make-icon.swift` draws `Support/AppIcon.icns`.
 

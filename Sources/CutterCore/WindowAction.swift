@@ -1,7 +1,7 @@
 import Foundation
 
 /// Everything Cutter does on a shortcut: the placements and moves of the focused window,
-/// and showing the recent screenshots.
+/// showing the recent screenshots, and opening the emoji picker.
 ///
 /// To add a placement: add a case, give it a `title`, and return its `UnitRect` from `behavior`.
 /// The settings window, the menu and the shortcut storage pick it up from `allCases`, in
@@ -20,6 +20,7 @@ public enum WindowAction: String, CaseIterable, Codable, Sendable {
     case nextDisplay
     case toggleFullScreen
     case recentScreenshots
+    case emojiAndSymbols
 
     public enum Behavior: Equatable, Sendable {
         /// Move and resize the window to this part of its screen's visible area.
@@ -30,6 +31,8 @@ public enum WindowAction: String, CaseIterable, Codable, Sendable {
         case toggleFullScreen
         /// Show the panel with the most recent screenshots.
         case showRecentScreenshots
+        /// Open the macOS emoji picker (Emoji & Symbols) in the app in front.
+        case showEmojiAndSymbols
     }
 
     public var title: String {
@@ -47,6 +50,8 @@ public enum WindowAction: String, CaseIterable, Codable, Sendable {
         case .nextDisplay: return "Move to Next Display"
         case .toggleFullScreen: return "Toggle Full Screen"
         case .recentScreenshots: return "Show Recent Screenshots"
+        // The name macOS gives it in its Input menu; the Edit menu says "Emoji & Symbols".
+        case .emojiAndSymbols: return "Show Emoji & Symbols"
         }
     }
 
@@ -65,13 +70,20 @@ public enum WindowAction: String, CaseIterable, Codable, Sendable {
         case .nextDisplay: return .moveToDisplay(.next)
         case .toggleFullScreen: return .toggleFullScreen
         case .recentScreenshots: return .showRecentScreenshots
+        case .emojiAndSymbols: return .showEmojiAndSymbols
         }
     }
 
     /// Whether the action controls another app's window, which takes Accessibility access.
-    /// Showing the screenshots does not.
+    /// Showing the screenshots does not. Neither does the emoji picker: it has a way
+    /// that works without, and uses the better one when access is there.
     public var needsAccessibility: Bool {
-        behavior != .showRecentScreenshots
+        switch behavior {
+        case .showRecentScreenshots, .showEmojiAndSymbols:
+            return false
+        case .place, .moveToDisplay, .toggleFullScreen:
+            return true
+        }
     }
 
     /// Whether the action needs a second display to do anything.

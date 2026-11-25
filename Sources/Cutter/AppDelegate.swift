@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var settings: SettingsWindowController?
     private var statusMenu: StatusMenuController?
     private let screenshots = ScreenshotPanelController()
+    private let emojiPicker = EmojiPicker()
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if isAnotherInstanceRunning() {
@@ -33,6 +34,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         model.toggleRecentScreenshots = { [screenshots] in
             screenshots.toggle()
+        }
+        model.showEmojiAndSymbols = { [emojiPicker] in
+            emojiPicker.show()
         }
         let statusMenu = StatusMenuController(model: model) { [weak settings] in
             settings?.show(activating: true)

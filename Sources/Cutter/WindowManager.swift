@@ -58,8 +58,8 @@ final class WindowManager {
             try move(window, toDisplay: direction)
         case .toggleFullScreen:
             try toggleFullScreen(window)
-        case .showRecentScreenshots:
-            // Not something done to a window; `AppModel` shows the panel.
+        case .showRecentScreenshots, .showEmojiAndSymbols:
+            // Not something done to a window; `AppModel` sends these elsewhere.
             break
         }
     }

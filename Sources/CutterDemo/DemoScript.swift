@@ -86,7 +86,7 @@ struct DemoScript {
                 }
                 frame = move.frame
                 unit = move.unit
-            case .toggleFullScreen, .showRecentScreenshots:
+            case .toggleFullScreen, .showRecentScreenshots, .showEmojiAndSymbols:
                 break
             }
         }
